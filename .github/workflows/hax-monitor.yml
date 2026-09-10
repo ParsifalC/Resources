@@ -1,0 +1,166 @@
+name: Hax monitor
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/5 * * * *"
+  push:
+    branches: [master]
+    paths:
+      - "scripts/hax_monitor.py"
+      - ".github/workflows/hax-monitor.yml"
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: hax-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Load previous snapshot
+        id: previous
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git fetch origin monitor-state:refs/remotes/origin/monitor-state 2>/dev/null \
+            && git show origin/monitor-state:hax.json > previous.json 2>/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            : > previous.json
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Probe Hax
+        run: |
+          python3 scripts/hax_monitor.py \
+            --previous previous.json \
+            --output current.json \
+            --diff-output diff.json
+
+      - name: Inspect result
+        id: result
+        shell: bash
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          d = json.load(open("diff.json"))
+          c = json.load(open("current.json"))
+          print(f"changed={str(bool(d['changed'])).lower()}")
+          print(f"initialized={str(bool(d['initialized'])).lower()}")
+          print(f"has_errors={str(bool(c.get('errors'))).lower()}")
+          PY
+
+      - name: Write job summary
+        shell: bash
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          c = json.load(open("current.json"))
+          d = json.load(open("diff.json"))
+          print("## Hax monitor")
+          print()
+          print(f"- Data Centers: `{', '.join(c['datacenters']) or '(none/unknown)'}`")
+          print(f"- Data Center source: `{c['datacenter_source']}`")
+          print(f"- Server counts: `{c['servers']}`")
+          print(f"- Total: `{c['server_total']}`")
+          print(f"- Changed: `{d['changed']}`")
+          if c.get('errors'):
+              print(f"- Errors: `{c['errors']}`")
+          PY
+
+      - name: Persist snapshot on monitor-state branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          tmp="$(mktemp -d)"
+          if git show-ref --verify --quiet refs/remotes/origin/monitor-state; then
+            git worktree add "$tmp" -B monitor-state origin/monitor-state
+          else
+            git worktree add --detach "$tmp" HEAD
+            (
+              cd "$tmp"
+              git checkout --orphan monitor-state
+              git rm -rf . >/dev/null 2>&1 || true
+            )
+          fi
+
+          cp current.json "$tmp/hax.json"
+          (
+            cd "$tmp"
+            git add hax.json
+            if ! git diff --cached --quiet; then
+              git commit -m "chore: update Hax monitor snapshot"
+              git push origin HEAD:monitor-state
+            fi
+          )
+          git worktree remove "$tmp" --force
+
+      - name: Build notification
+        if: steps.previous.outputs.exists == 'true' && steps.result.outputs.changed == 'true'
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          c = json.load(open("current.json"))
+          d = json.load(open("diff.json"))
+          lines = ["Hax public state changed.", ""]
+
+          added = d["datacenters"].get("added", [])
+          removed = d["datacenters"].get("removed", [])
+          if added or removed:
+              lines.append("### Data Center")
+              lines += [f"- appeared: `{x}`" for x in added]
+              lines += [f"- disappeared: `{x}`" for x in removed]
+              lines.append("")
+
+          if d["servers"]:
+              lines.append("### VPS counts")
+              for name, x in d["servers"].items():
+                  before, after, delta = x["before"], x["after"], x["delta"]
+                  suffix = "" if delta is None else f" ({delta:+d})"
+                  lines.append(f"- `{name}`: `{before}` → `{after}`{suffix}")
+              lines.append("")
+
+          lines += [
+              f"Current Data Centers: `{', '.join(c['datacenters']) or '(none/unknown)'}`",
+              f"Current total: `{c['server_total']}`",
+              "",
+              f"Create page: {c['urls']['create']}",
+              f"Server page: {c['urls']['server']}",
+          ]
+          Path("notification.md").write_text("\n".join(lines) + "\n")
+          PY
+
+      - name: Notify through tracking issue
+        if: steps.previous.outputs.exists == 'true' && steps.result.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          number="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search 'Hax monitor notifications in:title' --json number,title --jq '.[] | select(.title == "Hax monitor notifications") | .number' | head -n1)"
+          if [ -z "$number" ]; then
+            number="$(gh issue create --repo "$GITHUB_REPOSITORY" --title 'Hax monitor notifications' --body 'This issue receives comments only when the public Hax Data Center list or VPS counts change. Subscribe to this issue to receive GitHub notifications.' --json number --jq '.number')"
+          fi
+          gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body-file notification.md
+
+      - name: Fail on probe error
+        if: steps.result.outputs.has_errors == 'true'
+        run: |
+          echo "One or more Hax endpoints could not be read. See the job summary."
+          exit 1
