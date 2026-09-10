@@ -114,35 +114,63 @@ jobs:
         run: |
           python3 - <<'PY'
           import json
+          from datetime import datetime, timezone, timedelta
           from pathlib import Path
 
           c = json.load(open("current.json"))
           d = json.load(open("diff.json"))
-          lines = ["🔔 Hax VPS 状态变化", "━━━━━━━━━━━━━━━━━━", ""]
-
           added = d["datacenters"].get("added", [])
           removed = d["datacenters"].get("removed", [])
-          if added or removed:
-              lines.append("🌐 Data Center")
-              lines += [f"✅ 新增：{x}" for x in added]
-              lines += [f"❌ 消失：{x}" for x in removed]
-              lines.append("")
+
+          # New Data Center availability is the highest-priority signal.
+          if added:
+              lines = ["🚨 Hax VPS 新库存", "━━━━━━━━━━━━━━━━━━", ""]
+              for name in added:
+                  lines.append(f"🟢 {name} 已出现")
+          else:
+              lines = ["📊 Hax VPS 状态变化", "━━━━━━━━━━━━━━━━━━", ""]
+
+          if removed:
+              if added:
+                  lines.append("")
+              for name in removed:
+                  lines.append(f"🔴 {name} 已消失")
 
           if d["servers"]:
-              lines.append("📊 VPS 数量")
+              lines.extend(["", "📈 VPS 数量变化"])
               for name, x in d["servers"].items():
                   before, after, delta = x["before"], x["after"], x["delta"]
                   suffix = "" if delta is None else f" ({delta:+d})"
-                  lines.append(f"{name}: {before} → {after}{suffix}")
-              lines.append("")
+                  lines.append(f"• {name}: {before} → {after}{suffix}")
 
-          lines += [
-              f"当前 Data Center：{', '.join(c['datacenters']) or '(none/unknown)'}",
-              f"当前 VPS 总数：{c['server_total']}",
+          lines.extend([
               "",
-              f"Create: {c['urls']['create']}",
-              f"Server: {c['urls']['server']}",
-          ]
+              "🌐 当前 Data Center",
+          ])
+          if c["datacenters"]:
+              added_set = set(added)
+              for name in c["datacenters"]:
+                  lines.append(f"• {name}{' 🆕' if name in added_set else ''}")
+          else:
+              lines.append("• (none/unknown)")
+
+          checked_at = c.get("checked_at")
+          display_time = checked_at or "unknown"
+          if checked_at:
+              try:
+                  dt = datetime.fromisoformat(checked_at.replace("Z", "+00:00"))
+                  display_time = dt.astimezone(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S (UTC+8)")
+              except ValueError:
+                  pass
+
+          lines.extend([
+              "",
+              f"📊 当前 VPS 总数：{c['server_total']}",
+              f"🕒 检测时间：{display_time}",
+              "",
+              "🔐 登录 Hax：https://hax.co.id/login",
+          ])
+
           Path("notification.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
           PY
 
