@@ -118,32 +118,93 @@ jobs:
 
           c = json.load(open("current.json"))
           d = json.load(open("diff.json"))
-          lines = ["Hax public state changed.", ""]
+          lines = ["🔔 Hax VPS 状态变化", "━━━━━━━━━━━━━━━━━━", ""]
 
           added = d["datacenters"].get("added", [])
           removed = d["datacenters"].get("removed", [])
           if added or removed:
-              lines.append("### Data Center")
-              lines += [f"- appeared: `{x}`" for x in added]
-              lines += [f"- disappeared: `{x}`" for x in removed]
+              lines.append("🌐 Data Center")
+              lines += [f"✅ 新增：{x}" for x in added]
+              lines += [f"❌ 消失：{x}" for x in removed]
               lines.append("")
 
           if d["servers"]:
-              lines.append("### VPS counts")
+              lines.append("📊 VPS 数量")
               for name, x in d["servers"].items():
                   before, after, delta = x["before"], x["after"], x["delta"]
                   suffix = "" if delta is None else f" ({delta:+d})"
-                  lines.append(f"- `{name}`: `{before}` → `{after}`{suffix}")
+                  lines.append(f"{name}: {before} → {after}{suffix}")
               lines.append("")
 
           lines += [
-              f"Current Data Centers: `{', '.join(c['datacenters']) or '(none/unknown)'}`",
-              f"Current total: `{c['server_total']}`",
+              f"当前 Data Center：{', '.join(c['datacenters']) or '(none/unknown)'}",
+              f"当前 VPS 总数：{c['server_total']}",
               "",
-              f"Create page: {c['urls']['create']}",
-              f"Server page: {c['urls']['server']}",
+              f"Create: {c['urls']['create']}",
+              f"Server: {c['urls']['server']}",
           ]
-          Path("notification.md").write_text("\n".join(lines) + "\n")
+          Path("notification.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY
+
+      - name: Notify Feishu
+        if: steps.previous.outputs.exists == 'true' && steps.result.outputs.changed == 'true'
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_CHAT_ID: ${{ secrets.FEISHU_CHAT_ID }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          app_id = os.environ.get("FEISHU_APP_ID", "").strip()
+          app_secret = os.environ.get("FEISHU_APP_SECRET", "").strip()
+          chat_id = os.environ.get("FEISHU_CHAT_ID", "").strip()
+
+          if not (app_id and app_secret and chat_id):
+              print("Feishu secrets are not fully configured; skipping Feishu notification.")
+              sys.exit(0)
+
+          def post_json(url, payload, headers=None):
+              body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+              request = urllib.request.Request(
+                  url,
+                  data=body,
+                  headers={"Content-Type": "application/json", **(headers or {})},
+                  method="POST",
+              )
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  data = json.loads(response.read().decode("utf-8"))
+              code = data.get("code", data.get("StatusCode", 0))
+              if code not in (0, "0", None):
+                  raise RuntimeError(f"Feishu API error: code={code}, msg={data.get('msg', data.get('StatusMessage'))}")
+              return data
+
+          token_data = post_json(
+              "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+              {"app_id": app_id, "app_secret": app_secret},
+          )
+          token = str(token_data.get("tenant_access_token") or "").strip()
+          if not token:
+              raise RuntimeError("Feishu response missing tenant_access_token")
+
+          text = Path("notification.md").read_text(encoding="utf-8").strip()
+          query = urllib.parse.urlencode({"receive_id_type": "chat_id"})
+          post_json(
+              f"https://open.feishu.cn/open-apis/im/v1/messages?{query}",
+              {
+                  "receive_id": chat_id,
+                  "msg_type": "text",
+                  "content": json.dumps({"text": text}, ensure_ascii=False),
+              },
+              headers={"Authorization": f"Bearer {token}"},
+          )
+          print("Feishu notification sent successfully.")
           PY
 
       - name: Notify through tracking issue
