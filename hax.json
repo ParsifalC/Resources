@@ -1,17 +1,9 @@
 {
-  "checked_at": "2026-09-10T18:49:06.344167+00:00",
-  "datacenters": [
-    "US-OpenVZ-2"
-  ],
-  "datacenter_source": "dom_select",
-  "servers": {
-    "EU-1": 205,
-    "EU-2": 0,
-    "EU-3": 0,
-    "EU-4": 0,
-    "EU-5": 0
-  },
-  "server_total": 205,
+  "checked_at": "2026-09-10T21:04:28.157908+00:00",
+  "datacenters": [],
+  "datacenter_source": "unavailable",
+  "servers": {},
+  "server_total": null,
   "errors": [],
   "urls": {
     "create": "https://hax.co.id/create-vps/",
