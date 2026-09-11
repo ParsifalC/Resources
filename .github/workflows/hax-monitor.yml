@@ -272,7 +272,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Hand off to next run
-        if: always() && github.event_name != 'push'
+        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
