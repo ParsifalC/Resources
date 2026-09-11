@@ -13,6 +13,7 @@ from typing import Any
 
 CREATE_URL = "https://hax.co.id/create-vps/"
 SERVER_URL = "https://hax.co.id/server"
+DATA_CENTER_URL = "https://hax.co.id/data-center"
 USER_AGENT = "Mozilla/5.0 (compatible; HaxInventoryMonitor/1.0; +https://github.com/ParsifalC/Resources)"
 
 
@@ -63,8 +64,8 @@ class TextParser(HTMLParser):
         return "\n".join(self.parts)
 
 
-def fetch(url: str, timeout: int = 20) -> str:
-    req = urllib.request.Request(
+def make_request(url: str) -> urllib.request.Request:
+    return urllib.request.Request(
         url,
         headers={
             "User-Agent": USER_AGENT,
@@ -73,9 +74,62 @@ def fetch(url: str, timeout: int = 20) -> str:
             "Cache-Control": "no-cache",
         },
     )
-    with urllib.request.urlopen(req, timeout=timeout) as response:
+
+
+def fetch(url: str, timeout: int = 20) -> str:
+    with urllib.request.urlopen(make_request(url), timeout=timeout) as response:
         charset = response.headers.get_content_charset() or "utf-8"
         return response.read().decode(charset, errors="replace")
+
+
+def diagnose_data_center(url: str, timeout: int = 20) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "url": url,
+        "reachable": False,
+        "status": None,
+        "final_url": None,
+        "content_type": None,
+        "content_length": None,
+        "title": None,
+        "challenge_detected": False,
+        "datacenter_tokens": [],
+        "text_excerpt": None,
+        "error": None,
+    }
+    try:
+        with urllib.request.urlopen(make_request(url), timeout=timeout) as response:
+            body = response.read()
+            charset = response.headers.get_content_charset() or "utf-8"
+            html = body.decode(charset, errors="replace")
+            result["reachable"] = True
+            result["status"] = getattr(response, "status", response.getcode())
+            result["final_url"] = response.geturl()
+            result["content_type"] = response.headers.get("Content-Type")
+            result["content_length"] = len(body)
+
+            title_match = re.search(r"<title[^>]*>(.*?)</title>", html, re.I | re.S)
+            if title_match:
+                result["title"] = " ".join(re.sub(r"<[^>]+>", " ", title_match.group(1)).split())[:200]
+
+            lower = html.lower()
+            challenge_markers = (
+                "please wait while your request is being verified",
+                "just a moment",
+                "cf-chl-",
+                "cloudflare",
+            )
+            result["challenge_detected"] = any(marker in lower for marker in challenge_markers)
+
+            tokens = sorted(set(re.findall(r"\b(?:EU-\d+|US-OpenVZ-\d+|[A-Z]{2,}-[A-Za-z0-9-]+)\b", html)))
+            result["datacenter_tokens"] = tokens[:50]
+
+            parser = TextParser()
+            parser.feed(html)
+            excerpt = " | ".join(parser.parts[:40])
+            result["text_excerpt"] = excerpt[:1200] if excerpt else None
+    except Exception as exc:  # diagnostic only; never invalidate inventory probe
+        result["error"] = f"{type(exc).__name__}: {exc}"
+    return result
 
 
 def normalize_datacenters(options: list[str]) -> list[str]:
@@ -193,14 +247,17 @@ def main() -> int:
         servers = {}
         errors.append(f"server: {type(exc).__name__}: {exc}")
 
+    data_center_probe = diagnose_data_center(DATA_CENTER_URL)
+
     current = {
         "checked_at": datetime.now(timezone.utc).isoformat(),
         "datacenters": datacenters,
         "datacenter_source": dc_source,
         "servers": servers,
         "server_total": sum(servers.values()) if servers else None,
+        "data_center_probe": data_center_probe,
         "errors": errors,
-        "urls": {"create": CREATE_URL, "server": SERVER_URL},
+        "urls": {"create": CREATE_URL, "server": SERVER_URL, "data_center": DATA_CENTER_URL},
     }
 
     previous = read_json(args.previous)
