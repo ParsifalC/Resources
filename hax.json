@@ -1,7 +1,8 @@
 {
-  "checked_at": "2026-09-11T11:40:13.522361+00:00",
+  "checked_at": "2026-09-11T17:17:48.080710+00:00",
   "datacenters": [
-    "US-OpenVZ-2"
+    "US-OpenVZ-2",
+    "US-OpenVZ-3"
   ],
   "datacenter_source": "dom_select",
   "servers": {
