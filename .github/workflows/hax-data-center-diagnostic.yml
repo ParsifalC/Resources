@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
+      - 'scripts/hax_monitor.py'
       - '.github/workflows/hax-data-center-diagnostic.yml'
 
 permissions:
