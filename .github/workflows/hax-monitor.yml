@@ -12,7 +12,6 @@ on:
 
 permissions:
   contents: write
-  issues: write
 
 concurrency:
   group: hax-monitor
@@ -79,6 +78,7 @@ jobs:
           PY
 
       - name: Persist snapshot on monitor-state branch
+        if: steps.result.outputs.has_errors == 'false'
         shell: bash
         run: |
           set -euo pipefail
@@ -109,7 +109,7 @@ jobs:
           git worktree remove "$tmp" --force
 
       - name: Build notification
-        if: steps.previous.outputs.exists == 'true' && steps.result.outputs.changed == 'true'
+        if: steps.previous.outputs.exists == 'true' && steps.result.outputs.changed == 'true' && steps.result.outputs.has_errors == 'false'
         shell: bash
         run: |
           python3 - <<'PY'
@@ -122,7 +122,6 @@ jobs:
           added = d["datacenters"].get("added", [])
           removed = d["datacenters"].get("removed", [])
 
-          # New Data Center availability is the highest-priority signal.
           if added:
               lines = ["🚨 Hax VPS 新库存", "━━━━━━━━━━━━━━━━━━", ""]
               for name in added:
@@ -143,16 +142,13 @@ jobs:
                   suffix = "" if delta is None else f" ({delta:+d})"
                   lines.append(f"• {name}: {before} → {after}{suffix}")
 
-          lines.extend([
-              "",
-              "🌐 当前 Data Center",
-          ])
+          lines.extend(["", "🌐 当前 Data Center"])
           if c["datacenters"]:
               added_set = set(added)
               for name in c["datacenters"]:
                   lines.append(f"• {name}{' 🆕' if name in added_set else ''}")
           else:
-              lines.append("• (none/unknown)")
+              lines.append("• (none)")
 
           checked_at = c.get("checked_at")
           display_time = checked_at or "unknown"
@@ -175,7 +171,7 @@ jobs:
           PY
 
       - name: Notify Feishu
-        if: steps.previous.outputs.exists == 'true' && steps.result.outputs.changed == 'true'
+        if: steps.previous.outputs.exists == 'true' && steps.result.outputs.changed == 'true' && steps.result.outputs.has_errors == 'false'
         env:
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
@@ -235,21 +231,8 @@ jobs:
           print("Feishu notification sent successfully.")
           PY
 
-      - name: Notify through tracking issue
-        if: steps.previous.outputs.exists == 'true' && steps.result.outputs.changed == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          number="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search 'Hax monitor notifications in:title' --json number,title --jq '.[] | select(.title == "Hax monitor notifications") | .number' | head -n1)"
-          if [ -z "$number" ]; then
-            number="$(gh issue create --repo "$GITHUB_REPOSITORY" --title 'Hax monitor notifications' --body 'This issue receives comments only when the public Hax Data Center list or VPS counts change. Subscribe to this issue to receive GitHub notifications.' --json number --jq '.number')"
-          fi
-          gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body-file notification.md
-
       - name: Fail on probe error
         if: steps.result.outputs.has_errors == 'true'
         run: |
-          echo "One or more Hax endpoints could not be read. See the job summary."
+          echo "One or more Hax endpoints could not be read or parsed. See the job summary."
           exit 1
