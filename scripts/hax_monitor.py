@@ -15,6 +15,7 @@ CREATE_URL = "https://hax.co.id/create-vps/"
 SERVER_URL = "https://hax.co.id/server"
 DATA_CENTER_URL = "https://hax.co.id/data-center"
 USER_AGENT = "Mozilla/5.0 (compatible; HaxInventoryMonitor/1.0; +https://github.com/ParsifalC/Resources)"
+DATACENTER_RE = re.compile(r"\b(?:EU-\d+|US-OpenVZ-\d+)\b", re.I)
 
 
 class DatacenterParser(HTMLParser):
@@ -64,6 +65,76 @@ class TextParser(HTMLParser):
         return "\n".join(self.parts)
 
 
+class PageStructureParser(HTMLParser):
+    """Collect human-visible structure while ignoring script/style noise."""
+
+    IGNORED_TAGS = {"script", "style", "noscript", "template"}
+    HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.ignored_depth = 0
+        self.parts: list[str] = []
+        self.headings: list[str] = []
+        self.heading_parts: list[str] | None = None
+        self.in_row = False
+        self.row: list[str] = []
+        self.cell_parts: list[str] | None = None
+        self.table_rows: list[list[str]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        tag = tag.lower()
+        if tag in self.IGNORED_TAGS:
+            self.ignored_depth += 1
+            return
+        if self.ignored_depth:
+            return
+        if tag in self.HEADING_TAGS:
+            self.heading_parts = []
+        elif tag == "tr":
+            self.in_row = True
+            self.row = []
+        elif self.in_row and tag in {"th", "td"}:
+            self.cell_parts = []
+
+    def handle_data(self, data: str) -> None:
+        if self.ignored_depth:
+            return
+        text = " ".join(data.split()).strip()
+        if not text:
+            return
+        self.parts.append(text)
+        if self.heading_parts is not None:
+            self.heading_parts.append(text)
+        if self.cell_parts is not None:
+            self.cell_parts.append(text)
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.lower()
+        if tag in self.IGNORED_TAGS:
+            if self.ignored_depth:
+                self.ignored_depth -= 1
+            return
+        if self.ignored_depth:
+            return
+        if tag in self.HEADING_TAGS and self.heading_parts is not None:
+            text = " ".join(self.heading_parts).strip()
+            if text:
+                self.headings.append(text)
+            self.heading_parts = None
+        elif self.in_row and tag in {"th", "td"} and self.cell_parts is not None:
+            text = " ".join(self.cell_parts).strip()
+            if text:
+                self.row.append(text)
+            self.cell_parts = None
+        elif tag == "tr" and self.in_row:
+            if self.row:
+                self.table_rows.append(self.row)
+            self.in_row = False
+            self.row = []
+            self.cell_parts = None
+
+
 def make_request(url: str) -> urllib.request.Request:
     return urllib.request.Request(
         url,
@@ -82,6 +153,27 @@ def fetch(url: str, timeout: int = 20) -> str:
         return response.read().decode(charset, errors="replace")
 
 
+def datacenter_contexts(parts: list[str], names: list[str]) -> dict[str, list[str]]:
+    contexts: dict[str, list[str]] = {}
+    for name in names:
+        needle = name.lower()
+        seen: set[str] = set()
+        matches: list[str] = []
+        for index, part in enumerate(parts):
+            if needle not in part.lower():
+                continue
+            start = max(0, index - 4)
+            end = min(len(parts), index + 9)
+            context = " | ".join(parts[start:end])[:1600]
+            if context and context not in seen:
+                seen.add(context)
+                matches.append(context)
+            if len(matches) >= 4:
+                break
+        contexts[name] = matches
+    return contexts
+
+
 def diagnose_data_center(url: str, timeout: int = 20) -> dict[str, Any]:
     result: dict[str, Any] = {
         "url": url,
@@ -91,8 +183,13 @@ def diagnose_data_center(url: str, timeout: int = 20) -> dict[str, Any]:
         "content_type": None,
         "content_length": None,
         "title": None,
+        "page_kind": "unknown",
         "challenge_detected": False,
+        "challenge_markers": [],
         "datacenter_tokens": [],
+        "headings": [],
+        "table_rows": [],
+        "datacenter_contexts": {},
         "text_excerpt": None,
         "error": None,
     }
@@ -112,21 +209,38 @@ def diagnose_data_center(url: str, timeout: int = 20) -> dict[str, Any]:
                 result["title"] = " ".join(re.sub(r"<[^>]+>", " ", title_match.group(1)).split())[:200]
 
             lower = html.lower()
-            challenge_markers = (
-                "please wait while your request is being verified",
-                "just a moment",
-                "cf-chl-",
-                "cloudflare",
-            )
-            result["challenge_detected"] = any(marker in lower for marker in challenge_markers)
+            marker_patterns = {
+                "verification_text": "please wait while your request is being verified",
+                "cloudflare_challenge_id": "cf-chl-",
+                "cloudflare_challenge_path": "/cdn-cgi/challenge-platform/",
+                "turnstile": "cf-turnstile",
+                "challenge_form": "challenge-form",
+            }
+            markers = [name for name, marker in marker_patterns.items() if marker in lower]
+            if (result.get("title") or "").strip().lower().startswith("just a moment"):
+                markers.append("just_a_moment_title")
+            result["challenge_markers"] = markers
+            result["challenge_detected"] = bool(markers)
 
-            tokens = sorted(set(re.findall(r"\b(?:EU-\d+|US-OpenVZ-\d+|[A-Z]{2,}-[A-Za-z0-9-]+)\b", html)))
-            result["datacenter_tokens"] = tokens[:50]
-
-            parser = TextParser()
+            parser = PageStructureParser()
             parser.feed(html)
-            excerpt = " | ".join(parser.parts[:40])
-            result["text_excerpt"] = excerpt[:1200] if excerpt else None
+            visible_text = "\n".join(parser.parts)
+            tokens = sorted({match.group(0) for match in DATACENTER_RE.finditer(visible_text)}, key=str.lower)
+            result["datacenter_tokens"] = tokens[:50]
+            result["headings"] = parser.headings[:30]
+            result["table_rows"] = parser.table_rows[:30]
+            result["datacenter_contexts"] = datacenter_contexts(parser.parts, tokens)
+
+            excerpt = " | ".join(parser.parts[:100])
+            result["text_excerpt"] = excerpt[:3000] if excerpt else None
+
+            title = (result.get("title") or "").lower()
+            if result["challenge_detected"]:
+                result["page_kind"] = "challenge"
+            elif "hax's data center" in title or "hax data center" in title:
+                result["page_kind"] = "hax_data_center"
+            elif tokens:
+                result["page_kind"] = "datacenter_content"
     except Exception as exc:  # diagnostic only; never invalidate inventory probe
         result["error"] = f"{type(exc).__name__}: {exc}"
     return result
