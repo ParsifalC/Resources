@@ -1,5 +1,5 @@
 {
-  "checked_at": "2026-09-11T23:46:06.857639+00:00",
+  "checked_at": "2026-09-11T23:51:34.176480+00:00",
   "datacenters": [
     "US-OpenVZ-2",
     "US-OpenVZ-3"
@@ -13,9 +13,29 @@
     "EU-5": 0
   },
   "server_total": 205,
+  "data_center_probe": {
+    "url": "https://hax.co.id/data-center",
+    "reachable": true,
+    "status": 200,
+    "final_url": "https://hax.co.id/data-center",
+    "content_type": "text/html; charset=UTF-8",
+    "content_length": 16439,
+    "title": "HAX's Data Center - Hax.co.id",
+    "challenge_detected": true,
+    "datacenter_tokens": [
+      "EU-1",
+      "GTM-W8XJWPVZ",
+      "UA-179253361-1",
+      "US-OpenVZ-2",
+      "US-OpenVZ-3"
+    ],
+    "text_excerpt": "HAX's Data Center - Hax.co.id | (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start': new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0], j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src= 'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f); })(window,document,'script','dataLayer','GTM-W8XJWPVZ'); | (function() {function signalGooglefcPresent() {if (!window.frames['googlefcPresent']) {if (document.body) {const iframe = document.createElement('iframe'); iframe.style = 'width: 0; height: 0; border: none; z-index: -1000; left: -1000px; top: -1000px;'; iframe.style.display = 'none'; iframe.name = 'googlefcPresent'; document.body.appendChild(iframe);} else {setTimeout(signalGooglefcPresent, 0);}}}signalGooglefcPresent();})(); | Home | Buy VPS | Woiden IPv6 VPS | Dual Stack VPN | Data Center | VPS | Create VPS | Remove VPS | VPS Info | VPS Status | VPS Control | VPS Password | VPS Reinstall | VPS Renew | Tool | IPv6 to IPv4 | CF DNS Pointing | WebBase - SSH Client | WebBase - FTP Client | Telegram Bot | Login | Register | (adsbygoogle = window.adsbygoogle || []).push({}); | Create a free NAT VPS at Woiden.id | Jo",
+    "error": null
+  },
   "errors": [],
   "urls": {
     "create": "https://hax.co.id/create-vps/",
-    "server": "https://hax.co.id/server"
+    "server": "https://hax.co.id/server",
+    "data_center": "https://hax.co.id/data-center"
   }
 }
