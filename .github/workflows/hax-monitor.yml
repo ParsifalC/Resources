@@ -3,7 +3,9 @@ name: Hax monitor
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/5 * * * *"
+    # Watchdog only. Normal continuity is provided by self-dispatch at the end
+    # of each long-lived run.
+    - cron: "23 */6 * * *"
   push:
     branches: [master]
     paths:
@@ -12,6 +14,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: hax-monitor
@@ -20,13 +23,21 @@ concurrency:
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    # GitHub-hosted jobs are capped at 6 hours. Keep 10 minutes for final
+    # persistence and hand-off instead of running into the hard limit.
+    timeout-minutes: 350
+    env:
+      MONITOR_SECONDS: 20400
+      INTERVAL_SECONDS: 300
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_CHAT_ID: ${{ secrets.FEISHU_CHAT_ID }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Load previous snapshot
+      - name: Load previous valid snapshot
         id: previous
         shell: bash
         run: |
@@ -39,81 +50,24 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Probe Hax
-        run: |
-          python3 scripts/hax_monitor.py \
-            --previous previous.json \
-            --output current.json \
-            --diff-output diff.json
-
-      - name: Inspect result
-        id: result
+      - name: Monitor Hax continuously
+        id: loop
         shell: bash
         run: |
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          set -u
+          deadline=$(( $(date +%s) + MONITOR_SECONDS ))
+          iteration=0
+          valid_checks=0
+          failed_checks=0
+          notifications=0
+
+          notify_feishu() {
+            python3 - <<'PY'
           import json
-          d = json.load(open("diff.json"))
-          c = json.load(open("current.json"))
-          print(f"changed={str(bool(d['changed'])).lower()}")
-          print(f"initialized={str(bool(d['initialized'])).lower()}")
-          print(f"has_errors={str(bool(c.get('errors'))).lower()}")
-          PY
-
-      - name: Write job summary
-        shell: bash
-        run: |
-          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
-          import json
-          c = json.load(open("current.json"))
-          d = json.load(open("diff.json"))
-          print("## Hax monitor")
-          print()
-          print(f"- Data Centers: `{', '.join(c['datacenters']) or '(none/unknown)'}`")
-          print(f"- Data Center source: `{c['datacenter_source']}`")
-          print(f"- Server counts: `{c['servers']}`")
-          print(f"- Total: `{c['server_total']}`")
-          print(f"- Changed: `{d['changed']}`")
-          if c.get('errors'):
-              print(f"- Errors: `{c['errors']}`")
-          PY
-
-      - name: Persist snapshot on monitor-state branch
-        if: steps.result.outputs.has_errors == 'false'
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          tmp="$(mktemp -d)"
-          if git show-ref --verify --quiet refs/remotes/origin/monitor-state; then
-            git worktree add "$tmp" -B monitor-state origin/monitor-state
-          else
-            git worktree add --detach "$tmp" HEAD
-            (
-              cd "$tmp"
-              git checkout --orphan monitor-state
-              git rm -rf . >/dev/null 2>&1 || true
-            )
-          fi
-
-          cp current.json "$tmp/hax.json"
-          (
-            cd "$tmp"
-            git add hax.json
-            if ! git diff --cached --quiet; then
-              git commit -m "chore: update Hax monitor snapshot"
-              git push origin HEAD:monitor-state
-            fi
-          )
-          git worktree remove "$tmp" --force
-
-      - name: Build notification
-        if: steps.previous.outputs.exists == 'true' && steps.result.outputs.changed == 'true' && steps.result.outputs.has_errors == 'false'
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import json
+          import os
+          import sys
+          import urllib.parse
+          import urllib.request
           from datetime import datetime, timezone, timedelta
           from pathlib import Path
 
@@ -166,33 +120,15 @@ jobs:
               "",
               "🔐 登录 Hax：https://hax.co.id/login",
           ])
-
-          Path("notification.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-          PY
-
-      - name: Notify Feishu
-        if: steps.previous.outputs.exists == 'true' && steps.result.outputs.changed == 'true' && steps.result.outputs.has_errors == 'false'
-        env:
-          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
-          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
-          FEISHU_CHAT_ID: ${{ secrets.FEISHU_CHAT_ID }}
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          import sys
-          import urllib.parse
-          import urllib.request
-          from pathlib import Path
+          text = "\n".join(lines)
+          Path("notification.md").write_text(text + "\n", encoding="utf-8")
 
           app_id = os.environ.get("FEISHU_APP_ID", "").strip()
           app_secret = os.environ.get("FEISHU_APP_SECRET", "").strip()
           chat_id = os.environ.get("FEISHU_CHAT_ID", "").strip()
-
           if not (app_id and app_secret and chat_id):
-              print("Feishu secrets are not fully configured; skipping Feishu notification.")
-              sys.exit(0)
+              print("Feishu secrets are not fully configured; skipping notification.")
+              sys.exit(2)
 
           def post_json(url, payload, headers=None):
               body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -217,7 +153,6 @@ jobs:
           if not token:
               raise RuntimeError("Feishu response missing tenant_access_token")
 
-          text = Path("notification.md").read_text(encoding="utf-8").strip()
           query = urllib.parse.urlencode({"receive_id_type": "chat_id"})
           post_json(
               f"https://open.feishu.cn/open-apis/im/v1/messages?{query}",
@@ -230,9 +165,118 @@ jobs:
           )
           print("Feishu notification sent successfully.")
           PY
+          }
 
-      - name: Fail on probe error
-        if: steps.result.outputs.has_errors == 'true'
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            iteration=$((iteration + 1))
+            echo "=== Hax check #$iteration at $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+
+            python3 scripts/hax_monitor.py \
+              --previous previous.json \
+              --output current.json \
+              --diff-output diff.json
+
+            read -r has_errors changed initialized <<EOF
+          $(python3 - <<'PY'
+          import json
+          c = json.load(open("current.json"))
+          d = json.load(open("diff.json"))
+          print(
+              str(bool(c.get("errors"))).lower(),
+              str(bool(d.get("changed"))).lower(),
+              str(bool(d.get("initialized"))).lower(),
+          )
+          PY
+          )
+          EOF
+
+            if [ "$has_errors" = "true" ]; then
+              failed_checks=$((failed_checks + 1))
+              echo "Probe invalid; preserving previous valid snapshot and continuing."
+            else
+              valid_checks=$((valid_checks + 1))
+              if [ "$changed" = "true" ] && [ "$initialized" = "false" ]; then
+                if notify_feishu; then
+                  notifications=$((notifications + 1))
+                else
+                  echo "Feishu notification failed; monitor will continue." >&2
+                fi
+              fi
+              cp current.json previous.json
+            fi
+
+            now=$(date +%s)
+            next=$((now + INTERVAL_SECONDS))
+            if [ "$next" -ge "$deadline" ]; then
+              break
+            fi
+            sleep "$INTERVAL_SECONDS"
+          done
+
+          echo "iterations=$iteration" >> "$GITHUB_OUTPUT"
+          echo "valid_checks=$valid_checks" >> "$GITHUB_OUTPUT"
+          echo "failed_checks=$failed_checks" >> "$GITHUB_OUTPUT"
+          echo "notifications=$notifications" >> "$GITHUB_OUTPUT"
+
+      - name: Persist final valid snapshot
+        if: always()
+        shell: bash
         run: |
-          echo "One or more Hax endpoints could not be read or parsed. See the job summary."
-          exit 1
+          set -euo pipefail
+          if [ ! -s previous.json ]; then
+            echo "No valid snapshot available; nothing to persist."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          tmp="$(mktemp -d)"
+          cleanup() { git worktree remove "$tmp" --force >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+
+          if git show-ref --verify --quiet refs/remotes/origin/monitor-state; then
+            git worktree add "$tmp" -B monitor-state origin/monitor-state
+          else
+            git worktree add --detach "$tmp" HEAD
+            (
+              cd "$tmp"
+              git checkout --orphan monitor-state
+              git rm -rf . >/dev/null 2>&1 || true
+            )
+          fi
+
+          cp previous.json "$tmp/hax.json"
+          (
+            cd "$tmp"
+            git add hax.json
+            if ! git diff --cached --quiet; then
+              git commit -m "chore: update Hax monitor snapshot"
+              git push origin HEAD:monitor-state
+            fi
+          )
+
+      - name: Write job summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Hax long-lived monitor"
+            echo
+            echo "- Iterations: \`${{ steps.loop.outputs.iterations || 'unknown' }}\`"
+            echo "- Valid checks: \`${{ steps.loop.outputs.valid_checks || 'unknown' }}\`"
+            echo "- Failed checks: \`${{ steps.loop.outputs.failed_checks || 'unknown' }}\`"
+            echo "- Feishu notifications: \`${{ steps.loop.outputs.notifications || 'unknown' }}\`"
+            echo "- Interval: \`${INTERVAL_SECONDS}s\`"
+            echo "- Target runtime: \`${MONITOR_SECONDS}s\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Hand off to next run
+        if: always() && github.event_name != 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Dispatching the next Hax monitor run."
+          gh workflow run hax-monitor.yml --repo "$GITHUB_REPOSITORY" --ref master
