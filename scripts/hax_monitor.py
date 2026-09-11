@@ -6,7 +6,6 @@ import json
 import re
 import sys
 import urllib.request
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
@@ -97,9 +96,6 @@ def parse_datacenters(html: str) -> tuple[list[str], str]:
     if parser.options:
         return normalize_datacenters(parser.options), "dom_select"
 
-    # Conservative fallback: if Hax changes markup but still emits known-looking
-    # datacenter names in the raw response, keep monitoring rather than silently
-    # losing the signal.
     candidates = sorted(set(re.findall(r"\b(?:EU-\d+|US-OpenVZ-\d+|[A-Z]{2,}-[A-Za-z0-9-]+)\b", html)))
     return candidates, "raw_html_fallback" if candidates else "unavailable"
 
@@ -133,9 +129,18 @@ def read_json(path: Path | None) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+def empty_diff(previous: dict[str, Any] | None) -> dict[str, Any]:
+    return {
+        "initialized": previous is None,
+        "changed": False,
+        "datacenters": {"added": [], "removed": []},
+        "servers": {},
+    }
+
+
 def make_diff(previous: dict[str, Any] | None, current: dict[str, Any]) -> dict[str, Any]:
     if previous is None:
-        return {"initialized": True, "changed": False, "datacenters": {}, "servers": {}}
+        return empty_diff(previous)
 
     prev_dc = set(previous.get("datacenters") or [])
     curr_dc = set(current.get("datacenters") or [])
@@ -173,6 +178,8 @@ def main() -> int:
     try:
         create_html = fetch(CREATE_URL)
         datacenters, dc_source = parse_datacenters(create_html)
+        if dc_source == "unavailable":
+            errors.append("create-vps: response was reachable but datacenter inventory could not be parsed")
     except Exception as exc:  # noqa: BLE001 - monitor should report partial failure
         datacenters, dc_source = [], "error"
         errors.append(f"create-vps: {type(exc).__name__}: {exc}")
@@ -180,6 +187,8 @@ def main() -> int:
     try:
         server_html = fetch(SERVER_URL)
         servers = parse_server_counts(server_html)
+        if not servers:
+            errors.append("server: response was reachable but VPS counts could not be parsed")
     except Exception as exc:  # noqa: BLE001
         servers = {}
         errors.append(f"server: {type(exc).__name__}: {exc}")
@@ -195,7 +204,7 @@ def main() -> int:
     }
 
     previous = read_json(args.previous)
-    diff = make_diff(previous, current)
+    diff = empty_diff(previous) if errors else make_diff(previous, current)
 
     args.output.write_text(json.dumps(current, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     args.diff_output.write_text(json.dumps(diff, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
