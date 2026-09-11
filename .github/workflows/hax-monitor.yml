@@ -90,19 +90,29 @@ jobs:
                   lines.append(f"🔴 {name} 已消失")
 
           if d["servers"]:
-              lines.extend(["", "📈 VPS 数量变化"])
+              lines.extend(["", "📈 /server VPS 数量变化"])
               for name, x in d["servers"].items():
                   before, after, delta = x["before"], x["after"], x["delta"]
                   suffix = "" if delta is None else f" ({delta:+d})"
                   lines.append(f"• {name}: {before} → {after}{suffix}")
 
-          lines.extend(["", "🌐 当前 Data Center"])
+          lines.extend(["", "🌐 当前 Create VPS 可选 Data Center"])
           if c["datacenters"]:
               added_set = set(added)
               for name in c["datacenters"]:
                   lines.append(f"• {name}{' 🆕' if name in added_set else ''}")
           else:
               lines.append("• (none)")
+
+          stats = c.get("data_center_stats") or {}
+          stats_servers = stats.get("servers") or {}
+          if stats_servers:
+              lines.extend(["", "🧭 Data Center Server Statistics（不是剩余库存）"])
+              for name, count in stats_servers.items():
+                  lines.append(f"• {name}: {count} VPS")
+              online_total = stats.get("online_total")
+              if online_total is not None:
+                  lines.append(f"• Online total: {online_total} VPS")
 
           checked_at = c.get("checked_at")
           display_time = checked_at or "unknown"
@@ -113,9 +123,15 @@ jobs:
               except ValueError:
                   pass
 
+          online_total = stats.get("online_total") if isinstance(stats, dict) else None
+          if online_total is not None:
+              total_line = f"📊 Hax 在线 VPS 总数：{online_total}"
+          else:
+              total_line = f"📊 /server 页面统计合计：{c.get('server_total')}"
+
           lines.extend([
               "",
-              f"📊 当前 VPS 总数：{c['server_total']}",
+              total_line,
               f"🕒 检测时间：{display_time}",
               "",
               "🔐 登录 Hax：https://hax.co.id/login",
