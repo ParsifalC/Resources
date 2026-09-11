@@ -174,6 +174,29 @@ def datacenter_contexts(parts: list[str], names: list[str]) -> dict[str, list[st
     return contexts
 
 
+def parse_data_center_stats(parts: list[str]) -> dict[str, Any]:
+    text = "\n".join(parts)
+    counts: dict[str, int] = {}
+    pattern = re.compile(r"(?:\./)?((?:EU-\d+)|(?:US-OpenVZ-\d+))\s*\n\s*(\d+)\s*VPS\b", re.I)
+    for name, count in pattern.findall(text):
+        counts[name] = int(count)
+
+    total_match = re.search(r"Number of VPS Online\s*\n\s*(\d+)\s*VPS\b", text, re.I)
+    online_total = int(total_match.group(1)) if total_match else None
+    sum_servers = sum(counts.values()) if counts else None
+    consistent = (
+        online_total == sum_servers
+        if isinstance(online_total, int) and isinstance(sum_servers, int)
+        else None
+    )
+    return {
+        "servers": dict(sorted(counts.items())),
+        "online_total": online_total,
+        "sum_servers": sum_servers,
+        "consistent": consistent,
+    }
+
+
 def diagnose_data_center(url: str, timeout: int = 20) -> dict[str, Any]:
     result: dict[str, Any] = {
         "url": url,
@@ -186,6 +209,7 @@ def diagnose_data_center(url: str, timeout: int = 20) -> dict[str, Any]:
         "page_kind": "unknown",
         "challenge_detected": False,
         "challenge_markers": [],
+        "stats": {"servers": {}, "online_total": None, "sum_servers": None, "consistent": None},
         "datacenter_tokens": [],
         "headings": [],
         "table_rows": [],
@@ -208,6 +232,18 @@ def diagnose_data_center(url: str, timeout: int = 20) -> dict[str, Any]:
             if title_match:
                 result["title"] = " ".join(re.sub(r"<[^>]+>", " ", title_match.group(1)).split())[:200]
 
+            parser = PageStructureParser()
+            parser.feed(html)
+            visible_text = "\n".join(parser.parts)
+            visible_lower = visible_text.lower()
+            tokens = sorted({match.group(0) for match in DATACENTER_RE.finditer(visible_text)}, key=str.lower)
+            stats = parse_data_center_stats(parser.parts)
+            result["stats"] = stats
+            result["datacenter_tokens"] = tokens[:50]
+            result["headings"] = parser.headings[:30]
+            result["table_rows"] = parser.table_rows[:30]
+            result["datacenter_contexts"] = datacenter_contexts(parser.parts, tokens)
+
             lower = html.lower()
             marker_patterns = {
                 "verification_text": "please wait while your request is being verified",
@@ -217,28 +253,26 @@ def diagnose_data_center(url: str, timeout: int = 20) -> dict[str, Any]:
                 "challenge_form": "challenge-form",
             }
             markers = [name for name, marker in marker_patterns.items() if marker in lower]
-            if (result.get("title") or "").strip().lower().startswith("just a moment"):
+            title = (result.get("title") or "").strip().lower()
+            if title.startswith("just a moment"):
                 markers.append("just_a_moment_title")
             result["challenge_markers"] = markers
-            result["challenge_detected"] = bool(markers)
 
-            parser = PageStructureParser()
-            parser.feed(html)
-            visible_text = "\n".join(parser.parts)
-            tokens = sorted({match.group(0) for match in DATACENTER_RE.finditer(visible_text)}, key=str.lower)
-            result["datacenter_tokens"] = tokens[:50]
-            result["headings"] = parser.headings[:30]
-            result["table_rows"] = parser.table_rows[:30]
-            result["datacenter_contexts"] = datacenter_contexts(parser.parts, tokens)
+            normal_content = (
+                ("hax's data center" in title or "hax data center" in title)
+                and "server statistics" in visible_lower
+                and bool(stats["servers"])
+            )
+            hard_challenge = "verification_text" in markers or "just_a_moment_title" in markers
+            result["challenge_detected"] = hard_challenge or (bool(markers) and not normal_content)
 
             excerpt = " | ".join(parser.parts[:100])
             result["text_excerpt"] = excerpt[:3000] if excerpt else None
 
-            title = (result.get("title") or "").lower()
-            if result["challenge_detected"]:
-                result["page_kind"] = "challenge"
-            elif "hax's data center" in title or "hax data center" in title:
+            if normal_content:
                 result["page_kind"] = "hax_data_center"
+            elif result["challenge_detected"]:
+                result["page_kind"] = "challenge"
             elif tokens:
                 result["page_kind"] = "datacenter_content"
     except Exception as exc:  # diagnostic only; never invalidate inventory probe
@@ -369,6 +403,7 @@ def main() -> int:
         "datacenter_source": dc_source,
         "servers": servers,
         "server_total": sum(servers.values()) if servers else None,
+        "data_center_stats": data_center_probe.get("stats"),
         "data_center_probe": data_center_probe,
         "errors": errors,
         "urls": {"create": CREATE_URL, "server": SERVER_URL, "data_center": DATA_CENTER_URL},
