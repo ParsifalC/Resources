@@ -1,10 +1,11 @@
 {
-  "checked_at": "2026-09-12T00:07:40.669005+00:00",
+  "checked_at": "2026-09-12T05:53:03.642604+00:00",
   "datacenters": [
     "US-OpenVZ-2",
     "US-OpenVZ-3"
   ],
   "datacenter_source": "dom_select",
+  "datacenter_option_semantics": "form_option_only_not_confirmed_stock",
   "servers": {
     "EU-1": 205,
     "EU-2": 0,
@@ -13,6 +14,17 @@
     "EU-5": 0
   },
   "server_total": 205,
+  "data_center_stats": {
+    "servers": {
+      "EU-1": 205,
+      "US-OpenVZ-2": 321,
+      "US-OpenVZ-3": 348
+    },
+    "online_total": 874,
+    "sum_servers": 874,
+    "consistent": true
+  },
+  "data_center_stats_fresh": true,
   "data_center_probe": {
     "url": "https://hax.co.id/data-center",
     "reachable": true,
@@ -21,15 +33,58 @@
     "content_type": "text/html; charset=UTF-8",
     "content_length": 16439,
     "title": "HAX's Data Center - Hax.co.id",
-    "challenge_detected": true,
+    "page_kind": "hax_data_center",
+    "challenge_detected": false,
+    "challenge_markers": [
+      "cloudflare_challenge_path"
+    ],
+    "stats": {
+      "servers": {
+        "EU-1": 205,
+        "US-OpenVZ-2": 321,
+        "US-OpenVZ-3": 348
+      },
+      "online_total": 874,
+      "sum_servers": 874,
+      "consistent": true
+    },
     "datacenter_tokens": [
       "EU-1",
-      "GTM-W8XJWPVZ",
-      "UA-179253361-1",
       "US-OpenVZ-2",
       "US-OpenVZ-3"
     ],
-    "text_excerpt": "HAX's Data Center - Hax.co.id | (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start': new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0], j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src= 'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f); })(window,document,'script','dataLayer','GTM-W8XJWPVZ'); | (function() {function signalGooglefcPresent() {if (!window.frames['googlefcPresent']) {if (document.body) {const iframe = document.createElement('iframe'); iframe.style = 'width: 0; height: 0; border: none; z-index: -1000; left: -1000px; top: -1000px;'; iframe.style.display = 'none'; iframe.name = 'googlefcPresent'; document.body.appendChild(iframe);} else {setTimeout(signalGooglefcPresent, 0);}}}signalGooglefcPresent();})(); | Home | Buy VPS | Woiden IPv6 VPS | Dual Stack VPN | Data Center | VPS | Create VPS | Remove VPS | VPS Info | VPS Status | VPS Control | VPS Password | VPS Reinstall | VPS Renew | Tool | IPv6 to IPv4 | CF DNS Pointing | WebBase - SSH Client | WebBase - FTP Client | Telegram Bot | Login | Register | (adsbygoogle = window.adsbygoogle || []).push({}); | Create a free NAT VPS at Woiden.id | Jo",
+    "headings": [
+      "Server Statistics",
+      "./US-OpenVZ-3",
+      "348 VPS",
+      "./US-OpenVZ-2",
+      "321 VPS",
+      "./EU-1",
+      "205 VPS",
+      "Number of VPS Online",
+      "874 VPS",
+      "Join our Telegram Group",
+      "SSH Access",
+      "Unmetered Bandwidth",
+      "/112 Subnet IPv6",
+      "Tutorial",
+      "Website Information",
+      "Social Media",
+      "Account"
+    ],
+    "table_rows": [],
+    "datacenter_contexts": {
+      "EU-1": [
+        "./US-OpenVZ-3 | 348 VPS | ./US-OpenVZ-2 | 321 VPS | ./EU-1 | 205 VPS | Number of VPS Online | 874 VPS | Join our Telegram Group | MTProto Proxy : | ENABLE | SSH Access | Full SSH access to manage and install your application"
+      ],
+      "US-OpenVZ-2": [
+        "IPv4 to IPv6 | Server Statistics | ./US-OpenVZ-3 | 348 VPS | ./US-OpenVZ-2 | 321 VPS | ./EU-1 | 205 VPS | Number of VPS Online | 874 VPS | Join our Telegram Group | MTProto Proxy : | ENABLE"
+      ],
+      "US-OpenVZ-3": [
+        "DNS Pointing CF | | | IPv4 to IPv6 | Server Statistics | ./US-OpenVZ-3 | 348 VPS | ./US-OpenVZ-2 | 321 VPS | ./EU-1 | 205 VPS | Number of VPS Online | 874 VPS | Join our Telegram Group"
+      ]
+    },
+    "text_excerpt": "HAX's Data Center - Hax.co.id | Home | Buy VPS | Woiden IPv6 VPS | Dual Stack VPN | Data Center | VPS | Create VPS | Remove VPS | VPS Info | VPS Status | VPS Control | VPS Password | VPS Reinstall | VPS Renew | Tool | IPv6 to IPv4 | CF DNS Pointing | WebBase - SSH Client | WebBase - FTP Client | Telegram Bot | Login | Register | Create a free NAT VPS at Woiden.id | Join our | Telegram Group | | | Telegram Channel | for important updates | VPS Info | | | VPS Status | | | Reinstall VPS | | | Reset VPS Password | | | Extend VPS | | | Poweroff & Restart VPS | | | Web Base Terminal | | | DNS Pointing CF | | | IPv4 to IPv6 | Server Statistics | ./US-OpenVZ-3 | 348 VPS | ./US-OpenVZ-2 | 321 VPS | ./EU-1 | 205 VPS | Number of VPS Online | 874 VPS | Join our Telegram Group | MTProto Proxy : | ENABLE | SSH Access | Full SSH access to manage and install your application | Unmetered Bandwidth | All data centers provide Unlimited bandwidth | /112 Subnet IPv6 | 65,536 IPv6 for each VM, IPv6 is intended to replace IPv4 | Tutorial | How to Create a Free VPS | How do I connect to IPv6 Server? | More tutorials about IPv6 VPS | Website Information | Terms of Service | Disclaimer | Privacy Policy | Sitemap | Social Media | Telegram | Contact | Report Abuse | Account | Login | Register | Uptime Robot | © 2021 - | HAX.co.id",
     "error": null
   },
   "errors": [],
