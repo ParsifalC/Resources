@@ -241,8 +241,10 @@ jobs:
             # Hax documents daily expiry cleanup at 17:00 UTC. Poll faster around
             # that window because a released seat can disappear again quickly.
             sleep_seconds="$INTERVAL_SECONDS"
-            hm="$(date -u +%H%M)"
-            if [[ "$hm" >= "1655" && "$hm" <= "1720" ]]; then
+            hour="$(date -u +%H)"
+            minute="$(date -u +%M)"
+            minutes_since_midnight=$((10#$hour * 60 + 10#$minute))
+            if (( minutes_since_midnight >= 1015 && minutes_since_midnight <= 1040 )); then
               sleep_seconds="$CLEANUP_INTERVAL_SECONDS"
               echo "Cleanup window: using ${sleep_seconds}s polling interval."
             fi
@@ -315,7 +317,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Hand off to next run
-        if: always()
+        if: ${{ success() || cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
