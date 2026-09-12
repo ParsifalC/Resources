@@ -29,6 +29,7 @@ jobs:
     env:
       MONITOR_SECONDS: 20400
       INTERVAL_SECONDS: 300
+      CLEANUP_INTERVAL_SECONDS: 60
       FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
       FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
       FEISHU_CHAT_ID: ${{ secrets.FEISHU_CHAT_ID }}
@@ -75,28 +76,48 @@ jobs:
           d = json.load(open("diff.json"))
           added = d["datacenters"].get("added", [])
           removed = d["datacenters"].get("removed", [])
+          releases = d.get("release_candidates") or []
 
-          if added:
-              lines = ["🚨 Hax VPS 新库存", "━━━━━━━━━━━━━━━━━━", ""]
+          if releases:
+              lines = ["⚡ Hax 疑似释放可用席位", "━━━━━━━━━━━━━━━━━━", ""]
+              for item in releases:
+                  name = item.get("datacenter")
+                  before = item.get("before")
+                  after = item.get("after")
+                  released = item.get("released")
+                  source = item.get("source")
+                  lines.append(f"🟠 {name}: {before} → {after}，减少 {released} 台")
+                  lines.append(f"   信号源: {source}；建议立即手动尝试创建")
+          elif added:
+              lines = ["🚨 Hax 出现新的 Create VPS 选项", "━━━━━━━━━━━━━━━━━━", ""]
               for name in added:
-                  lines.append(f"🟢 {name} 已出现")
+                  lines.append(f"🟢 {name} 新出现")
+              lines.extend(["", "⚠️ 这仍不是成功库存确认，只是比长期常驻选项更强的信号。"])
           else:
-              lines = ["📊 Hax VPS 状态变化", "━━━━━━━━━━━━━━━━━━", ""]
+              lines = ["📊 Hax 可用性状态变化", "━━━━━━━━━━━━━━━━━━", ""]
 
           if removed:
-              if added:
+              if releases or added:
                   lines.append("")
               for name in removed:
-                  lines.append(f"🔴 {name} 已消失")
+                  lines.append(f"🔴 Create VPS 选项 {name} 已消失")
+
+          stats_diff = (d.get("data_center_stats") or {}).get("servers") or {}
+          if stats_diff:
+              lines.extend(["", "📉 Data Center 在线 VPS 数变化"])
+              for name, x in stats_diff.items():
+                  before, after, delta = x["before"], x["after"], x["delta"]
+                  suffix = "" if delta is None else f" ({delta:+d})"
+                  lines.append(f"• {name}: {before} → {after}{suffix}")
 
           if d["servers"]:
-              lines.extend(["", "📈 /server VPS 数量变化"])
+              lines.extend(["", "📈 /server 页面统计变化（辅助）"])
               for name, x in d["servers"].items():
                   before, after, delta = x["before"], x["after"], x["delta"]
                   suffix = "" if delta is None else f" ({delta:+d})"
                   lines.append(f"• {name}: {before} → {after}{suffix}")
 
-          lines.extend(["", "🌐 当前 Create VPS 可选 Data Center"])
+          lines.extend(["", "🌐 当前 Create VPS 表单选项（不等于好鸡/真实库存）"])
           if c["datacenters"]:
               added_set = set(added)
               for name in c["datacenters"]:
@@ -107,7 +128,9 @@ jobs:
           stats = c.get("data_center_stats") or {}
           stats_servers = stats.get("servers") or {}
           if stats_servers:
-              lines.extend(["", "🧭 Data Center Server Statistics（不是剩余库存）"])
+              stale = not bool(c.get("data_center_stats_fresh"))
+              suffix = "（沿用上一份有效值）" if stale else ""
+              lines.extend(["", f"🧭 Data Center Server Statistics{suffix}"])
               for name, count in stats_servers.items():
                   lines.append(f"• {name}: {count} VPS")
               online_total = stats.get("online_total")
@@ -123,15 +146,9 @@ jobs:
               except ValueError:
                   pass
 
-          online_total = stats.get("online_total") if isinstance(stats, dict) else None
-          if online_total is not None:
-              total_line = f"📊 Hax 在线 VPS 总数：{online_total}"
-          else:
-              total_line = f"📊 /server 页面统计合计：{c.get('server_total')}"
-
           lines.extend([
               "",
-              total_line,
+              "ℹ️ 只有成功创建并实际 Online 才能确认是可用 VPS；当前监控保持只读，不会代你创建。",
               f"🕒 检测时间：{display_time}",
               "",
               "🔐 登录 Hax：https://hax.co.id/login",
@@ -221,12 +238,21 @@ jobs:
               cp current.json previous.json
             fi
 
+            # Hax documents daily expiry cleanup at 17:00 UTC. Poll faster around
+            # that window because a released seat can disappear again quickly.
+            sleep_seconds="$INTERVAL_SECONDS"
+            hm="$(date -u +%H%M)"
+            if [[ "$hm" >= "1655" && "$hm" <= "1720" ]]; then
+              sleep_seconds="$CLEANUP_INTERVAL_SECONDS"
+              echo "Cleanup window: using ${sleep_seconds}s polling interval."
+            fi
+
             now=$(date +%s)
-            next=$((now + INTERVAL_SECONDS))
+            next=$((now + sleep_seconds))
             if [ "$next" -ge "$deadline" ]; then
               break
             fi
-            sleep "$INTERVAL_SECONDS"
+            sleep "$sleep_seconds"
           done
 
           echo "iterations=$iteration" >> "$GITHUB_OUTPUT"
@@ -283,7 +309,8 @@ jobs:
             echo "- Valid checks: \`${{ steps.loop.outputs.valid_checks || 'unknown' }}\`"
             echo "- Failed checks: \`${{ steps.loop.outputs.failed_checks || 'unknown' }}\`"
             echo "- Feishu notifications: \`${{ steps.loop.outputs.notifications || 'unknown' }}\`"
-            echo "- Interval: \`${INTERVAL_SECONDS}s\`"
+            echo "- Normal interval: \`${INTERVAL_SECONDS}s\`"
+            echo "- Cleanup-window interval: \`${CLEANUP_INTERVAL_SECONDS}s\` (16:55-17:20 UTC)"
             echo "- Target runtime: \`${MONITOR_SECONDS}s\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
