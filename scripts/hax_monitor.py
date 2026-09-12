@@ -254,8 +254,8 @@ def diagnose_data_center(url: str, timeout: int = 20) -> dict[str, Any]:
             }
             markers = [name for name, marker in marker_patterns.items() if marker in lower]
             title = (result.get("title") or "").strip().lower()
-            if title.startswith("just a moment"):
-                markers.append("just_a_moment_title")
+            if title.startswith("just a moment") or title.startswith("one moment"):
+                markers.append("challenge_title")
             result["challenge_markers"] = markers
 
             normal_content = (
@@ -263,7 +263,7 @@ def diagnose_data_center(url: str, timeout: int = 20) -> dict[str, Any]:
                 and "server statistics" in visible_lower
                 and bool(stats["servers"])
             )
-            hard_challenge = "verification_text" in markers or "just_a_moment_title" in markers
+            hard_challenge = "verification_text" in markers or "challenge_title" in markers
             result["challenge_detected"] = hard_challenge or (bool(markers) and not normal_content)
 
             excerpt = " | ".join(parser.parts[:100])
@@ -275,7 +275,7 @@ def diagnose_data_center(url: str, timeout: int = 20) -> dict[str, Any]:
                 result["page_kind"] = "challenge"
             elif tokens:
                 result["page_kind"] = "datacenter_content"
-    except Exception as exc:  # diagnostic only; never invalidate inventory probe
+    except Exception as exc:  # diagnostic only; never invalidate create-vps/server probes
         result["error"] = f"{type(exc).__name__}: {exc}"
     return result
 
@@ -337,7 +337,20 @@ def empty_diff(previous: dict[str, Any] | None) -> dict[str, Any]:
         "changed": False,
         "datacenters": {"added": [], "removed": []},
         "servers": {},
+        "data_center_stats": {"servers": {}, "online_total": None},
+        "release_candidates": [],
     }
+
+
+def count_changes(before_counts: dict[str, Any], after_counts: dict[str, Any]) -> dict[str, dict[str, int | None]]:
+    changes: dict[str, dict[str, int | None]] = {}
+    for name in sorted(set(before_counts) | set(after_counts)):
+        before = before_counts.get(name)
+        after = after_counts.get(name)
+        if before != after:
+            delta = after - before if isinstance(before, int) and isinstance(after, int) else None
+            changes[name] = {"before": before, "after": after, "delta": delta}
+    return changes
 
 
 def make_diff(previous: dict[str, Any] | None, current: dict[str, Any]) -> dict[str, Any]:
@@ -349,23 +362,63 @@ def make_diff(previous: dict[str, Any] | None, current: dict[str, Any]) -> dict[
     dc_added = sorted(curr_dc - prev_dc)
     dc_removed = sorted(prev_dc - curr_dc)
 
-    prev_servers = previous.get("servers") or {}
-    curr_servers = current.get("servers") or {}
-    names = sorted(set(prev_servers) | set(curr_servers))
-    server_changes: dict[str, dict[str, int | None]] = {}
-    for name in names:
-        before = prev_servers.get(name)
-        after = curr_servers.get(name)
-        if before != after:
-            delta = after - before if isinstance(before, int) and isinstance(after, int) else None
-            server_changes[name] = {"before": before, "after": after, "delta": delta}
+    server_changes = count_changes(previous.get("servers") or {}, current.get("servers") or {})
 
-    changed = bool(dc_added or dc_removed or server_changes)
+    previous_stats = previous.get("data_center_stats") or {}
+    current_stats = current.get("data_center_stats") or {}
+    stats_changes: dict[str, dict[str, int | None]] = {}
+    release_candidates: list[dict[str, Any]] = []
+
+    if current.get("data_center_stats_fresh") and previous_stats.get("servers"):
+        stats_changes = count_changes(previous_stats.get("servers") or {}, current_stats.get("servers") or {})
+        for name, change in stats_changes.items():
+            delta = change.get("delta")
+            if isinstance(delta, int) and delta < 0:
+                release_candidates.append(
+                    {
+                        "datacenter": name,
+                        "before": change.get("before"),
+                        "after": change.get("after"),
+                        "released": -delta,
+                        "source": "data-center",
+                    }
+                )
+
+    # /server only covers part of Hax. Use a negative change as a fallback release
+    # hint only when the richer /data-center snapshot is not fresh.
+    if not current.get("data_center_stats_fresh"):
+        for name, change in server_changes.items():
+            delta = change.get("delta")
+            if isinstance(delta, int) and delta < 0:
+                release_candidates.append(
+                    {
+                        "datacenter": name,
+                        "before": change.get("before"),
+                        "after": change.get("after"),
+                        "released": -delta,
+                        "source": "server-fallback",
+                    }
+                )
+
+    prev_online = previous_stats.get("online_total")
+    curr_online = current_stats.get("online_total")
+    online_change = None
+    if current.get("data_center_stats_fresh") and isinstance(prev_online, int) and isinstance(curr_online, int):
+        if prev_online != curr_online:
+            online_change = {"before": prev_online, "after": curr_online, "delta": curr_online - prev_online}
+
+    # A persistent Create VPS option is not treated as stock: Hax can keep an
+    # OpenVZ option visible even when creating it yields an unusable/dead VPS.
+    # Alert-worthy signals are a newly appearing option or a drop in the live
+    # VPS population, which is only a release candidate, not confirmed stock.
+    changed = bool(dc_added or dc_removed or release_candidates)
     return {
         "initialized": False,
         "changed": changed,
         "datacenters": {"added": dc_added, "removed": dc_removed},
         "servers": server_changes,
+        "data_center_stats": {"servers": stats_changes, "online_total": online_change},
+        "release_candidates": release_candidates,
     }
 
 
@@ -376,12 +429,14 @@ def main() -> int:
     ap.add_argument("--diff-output", type=Path, default=Path("diff.json"))
     args = ap.parse_args()
 
+    previous = read_json(args.previous)
     errors: list[str] = []
+
     try:
         create_html = fetch(CREATE_URL)
         datacenters, dc_source = parse_datacenters(create_html)
         if dc_source == "unavailable":
-            errors.append("create-vps: response was reachable but datacenter inventory could not be parsed")
+            errors.append("create-vps: response was reachable but datacenter options could not be parsed")
     except Exception as exc:  # noqa: BLE001 - monitor should report partial failure
         datacenters, dc_source = [], "error"
         errors.append(f"create-vps: {type(exc).__name__}: {exc}")
@@ -396,20 +451,34 @@ def main() -> int:
         errors.append(f"server: {type(exc).__name__}: {exc}")
 
     data_center_probe = diagnose_data_center(DATA_CENTER_URL)
+    raw_stats = data_center_probe.get("stats") or {}
+    data_center_stats_fresh = bool(
+        data_center_probe.get("page_kind") == "hax_data_center"
+        and raw_stats.get("servers")
+        and isinstance(raw_stats.get("online_total"), int)
+        and raw_stats.get("consistent") is True
+    )
+
+    if data_center_stats_fresh:
+        data_center_stats = raw_stats
+    else:
+        previous_stats = (previous or {}).get("data_center_stats") or {}
+        data_center_stats = previous_stats if previous_stats.get("servers") else raw_stats
 
     current = {
         "checked_at": datetime.now(timezone.utc).isoformat(),
         "datacenters": datacenters,
         "datacenter_source": dc_source,
+        "datacenter_option_semantics": "form_option_only_not_confirmed_stock",
         "servers": servers,
         "server_total": sum(servers.values()) if servers else None,
-        "data_center_stats": data_center_probe.get("stats"),
+        "data_center_stats": data_center_stats,
+        "data_center_stats_fresh": data_center_stats_fresh,
         "data_center_probe": data_center_probe,
         "errors": errors,
         "urls": {"create": CREATE_URL, "server": SERVER_URL, "data_center": DATA_CENTER_URL},
     }
 
-    previous = read_json(args.previous)
     diff = empty_diff(previous) if errors else make_diff(previous, current)
 
     args.output.write_text(json.dumps(current, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
