@@ -13,7 +13,8 @@ from pathlib import Path
 
 URL = "https://openworld.eu.org/"
 UA = "Mozilla/5.0 (compatible; Resources-OpenWorld-Monitor/1.1; +https://github.com/ParsifalC/Resources)"
-LABELS = (("nodes", "Nodes"), ("vps", "VPS"), ("ips", "IPs"), ("users", "Users"))
+LABELS = (("nodes", "Nodes"), ("vps", "VPS"), ("ips", "IPs"))
+MONITORED_KEYS = tuple(key for key, _ in LABELS)
 
 
 def fetch_html():
@@ -119,7 +120,9 @@ def main():
     changes = {}
     if not errors and not initialized:
         old = previous.get("counters") or {}
-        for key in sorted(set(old) | set(counters)):
+        # Compare only counters that are intentionally monitored. This also
+        # makes migration from legacy snapshots containing `users` silent.
+        for key in MONITORED_KEYS:
             before, after = old.get(key), counters.get(key)
             if before != after:
                 changes[key] = {
