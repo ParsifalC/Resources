@@ -109,8 +109,27 @@ jobs:
           print('Feishu notification sent.')
           PY
 
-      - name: Persist valid snapshot
+      - name: Decide snapshot persistence
         if: steps.probe.outputs.rc == '0'
+        id: persist_decision
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          d=json.load(open('diff.json'))
+          # Persist the first valid baseline, then only real counter changes.
+          should_persist=bool(d.get('initialized') or d.get('changed'))
+          print(f"persist={'true' if should_persist else 'false'}")
+          PY
+          if grep -q '^persist=true$' "$GITHUB_OUTPUT"; then
+            echo "Snapshot persistence required: initial baseline or counters changed."
+          else
+            echo "Counters unchanged; preserving existing snapshot without a commit."
+          fi
+
+      - name: Persist valid snapshot
+        if: steps.probe.outputs.rc == '0' && steps.persist_decision.outputs.persist == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -126,14 +145,23 @@ jobs:
             (cd "$tmp" && git checkout --orphan monitor-state && git rm -rf . >/dev/null 2>&1 || true)
           fi
           cp current.json "$tmp/openworld.json"
-          (cd "$tmp"; git add openworld.json; if ! git diff --cached --quiet; then git commit -m "chore: update OpenWorld monitor snapshot"; git push origin HEAD:monitor-state; else echo "Snapshot unchanged."; fi)
+          (
+            cd "$tmp"
+            git add openworld.json
+            if ! git diff --cached --quiet; then
+              git commit -m "chore: update OpenWorld monitor snapshot"
+              git push origin HEAD:monitor-state
+            else
+              echo "Snapshot content unchanged; no commit required."
+            fi
+          )
 
       - name: Summary
         if: always()
         shell: bash
         run: |
           python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
-          import json, os
+          import json
           print('## OpenWorld public capacity monitor\n')
           print('- Anonymous/read-only: `yes`')
           print('- Login/session: `none`')
@@ -145,6 +173,8 @@ jobs:
               print(f"- Probe status: `{c.get('status','UNKNOWN')}`")
               print(f"- Counters: `{json.dumps(c.get('counters',{}),sort_keys=True)}`")
               print(f"- Changed: `{d.get('changed')}`")
+              print(f"- Initial baseline: `{d.get('initialized')}`")
+              print(f"- Snapshot persisted: `{'yes' if d.get('initialized') or d.get('changed') else 'no'}`")
               if c.get('errors'): print(f"- Errors: `{json.dumps(c['errors'])}`")
           except Exception as e:
               print(f'- Diagnostics unavailable: `{type(e).__name__}: {e}`')
