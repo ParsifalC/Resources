@@ -230,6 +230,7 @@ def inspect_inventory(text, selects):
         if re.search(r"\bfree\b", option.get("text", ""), re.I)
     ]
     free_enabled = [option for option in free_options if not option.get("disabled")]
+    free_selected = [option for option in free_options if option.get("selected") and not option.get("disabled")]
 
     capacity_selects = roles["node"] + roles["server"] + roles["location"]
     usable_capacity_options = []
@@ -249,6 +250,7 @@ def inspect_inventory(text, selects):
         "matched_out_of_stock_phrases": matched_out_of_stock,
         "free_plan_option_count": len(free_options),
         "free_plan_enabled_count": len(free_enabled),
+        "free_plan_selected_count": len(free_selected),
         "usable_capacity_option_count": len(usable_capacity_options),
         "usable_capacity_options": usable_capacity_options[:30],
         "role_select_counts": {key: len(value) for key, value in roles.items()},
@@ -258,18 +260,20 @@ def inspect_inventory(text, selects):
         },
     }
 
-    # Conservative classification. Presence of a Free plan alone is not stock.
-    # We only call AVAILABLE when the page exposes an enabled Free option and at
-    # least one usable location/node/server option in the same server-rendered GET.
+    # Conservative classification. A Free plan existing in the form does not
+    # prove that Free capacity is available. AVAILABLE requires Free to be the
+    # selected plan in this exact GET response plus a usable capacity option.
     if matched_out_of_stock and free_options:
         return "OUT_OF_STOCK", "Free plan is present and the page explicitly reports no available capacity", evidence
+    if free_selected and usable_capacity_options:
+        return "AVAILABLE", "selected Free plan and usable location/node/server options are present in the GET response", evidence
+    if free_selected and not usable_capacity_options:
+        return "OUT_OF_STOCK", "selected Free plan has no usable location/node/server option", evidence
     if free_enabled and usable_capacity_options:
-        return "AVAILABLE", "enabled Free plan and usable location/node/server options are present in the GET response", evidence
-    if free_options and not usable_capacity_options:
-        return "OUT_OF_STOCK", "Free plan is present but no usable location/node/server option is exposed", evidence
-    if not free_options:
-        return "UNKNOWN", "could not identify a Free plan option confidently", evidence
-    return "UNKNOWN", "page structure was parsed but did not provide enough evidence for stock status", evidence
+        return "UNKNOWN", "Free plan is enabled but not selected; visible capacity may belong to another plan", evidence
+    if free_options:
+        return "UNKNOWN", "Free plan is present but the GET response does not prove current Free capacity", evidence
+    return "UNKNOWN", "could not identify a Free plan option confidently", evidence
 
 
 def main():
