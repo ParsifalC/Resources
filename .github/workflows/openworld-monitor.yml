@@ -41,9 +41,11 @@ jobs:
             python3 - <<'PY'
           import json
           p=json.load(open('previous.json'))
+          counters=p.get('counters') or {}
+          monitored={k:counters[k] for k in ('nodes','vps','ips') if k in counters}
           print('Previous checked_at:', p.get('checked_at'))
           print('Previous status:', p.get('status', 'legacy/OK'))
-          print('Previous counters:', json.dumps(p.get('counters',{}), sort_keys=True))
+          print('Previous counters:', json.dumps(monitored, sort_keys=True))
           PY
           else
             : > previous.json
@@ -110,7 +112,7 @@ jobs:
           c=json.load(open('current.json')); d=json.load(open('diff.json'))
           if d.get('initialized') or not d.get('changed'):
               print('No counter change requiring notification.'); raise SystemExit(0)
-          labels={'nodes':'Nodes','vps':'VPS','ips':'IPs','users':'Users'}
+          labels={'nodes':'Nodes','vps':'VPS','ips':'IPs'}
           lines=['📡 OpenWorld 公开容量数量变化','━━━━━━━━━━━━━━━━━━','']
           for key,x in (d.get('counters') or {}).items():
               before,after,delta=x.get('before'),x.get('after'),x.get('delta')
@@ -196,6 +198,7 @@ jobs:
           print('- Authenticated Create VPS probe: `workflow_dispatch only, GET only`')
           print('- Create VPS POST/submission: `none`')
           print('- Schedule: `every 15 minutes`')
+          print('- Monitored counters: `Nodes, VPS, IPs`')
           print('- State: `monitor-state:openworld.json`')
           try:
               c=json.load(open('current.json')); d=json.load(open('diff.json'))
