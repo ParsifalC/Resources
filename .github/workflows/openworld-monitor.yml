@@ -1,0 +1,163 @@
+name: OpenWorld public capacity monitor
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/15 * * * *"
+  push:
+    branches: [master]
+    paths:
+      - "scripts/openworld_monitor.py"
+      - ".github/workflows/openworld-monitor.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: openworld-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_CHAT_ID: ${{ secrets.FEISHU_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Load previous valid snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git fetch origin monitor-state:refs/remotes/origin/monitor-state 2>/dev/null \
+            && git show origin/monitor-state:openworld.json > previous.json 2>/dev/null; then
+            echo "Loaded previous OpenWorld snapshot."
+          else
+            : > previous.json
+            echo "No previous snapshot; this run initializes state."
+          fi
+
+      - name: Probe anonymous public counters
+        id: probe
+        shell: bash
+        run: |
+          set +e
+          python3 scripts/openworld_monitor.py \
+            --previous previous.json \
+            --output current.json \
+            --diff-output diff.json
+          rc=$?
+          set -e
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          if [ "$rc" -ne 0 ]; then
+            echo "Public probe returned UNKNOWN; previous valid state will be preserved."
+          fi
+
+      - name: Notify Feishu on public counter change
+        if: steps.probe.outputs.rc == '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, sys, urllib.parse, urllib.request
+          from datetime import datetime, timezone, timedelta
+
+          c = json.load(open("current.json"))
+          d = json.load(open("diff.json"))
+          if d.get("initialized") or not d.get("changed"):
+              print("No counter change requiring notification.")
+              raise SystemExit(0)
+
+          labels = {"nodes": "Nodes", "vps": "VPS", "ips": "IPs", "users": "Users"}
+          lines = ["📡 OpenWorld 公开容量数量变化", "━━━━━━━━━━━━━━━━━━", ""]
+          for key, x in (d.get("counters") or {}).items():
+              before, after, delta = x.get("before"), x.get("after"), x.get("delta")
+              suffix = "" if delta is None else f" ({delta:+d})"
+              lines.append(f"• {labels.get(key, key)}: {before} → {after}{suffix}")
+          lines += [
+              "",
+              "⚠️ 这是匿名公开数量变化信号，不代表 Free VPS 已补货。",
+              "🔒 本监控不登录、不使用 Session、不提交 Create VPS。",
+          ]
+          checked = c.get("checked_at")
+          if checked:
+              try:
+                  dt = datetime.fromisoformat(checked.replace("Z", "+00:00"))
+                  checked = dt.astimezone(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S (UTC+8)")
+              except ValueError:
+                  pass
+          lines += [f"🕒 检测时间：{checked or 'unknown'}", "🌐 https://openworld.eu.org/"]
+          text = "\n".join(lines)
+
+          app_id = os.environ.get("FEISHU_APP_ID", "").strip()
+          secret = os.environ.get("FEISHU_APP_SECRET", "").strip()
+          chat_id = os.environ.get("FEISHU_CHAT_ID", "").strip()
+          if not (app_id and secret and chat_id):
+              print("Feishu secrets incomplete; change detected but notification skipped.", file=sys.stderr)
+              raise SystemExit(0)
+
+          def post(url, payload, headers=None):
+              req = urllib.request.Request(url, json.dumps(payload, ensure_ascii=False).encode(),
+                  {"Content-Type":"application/json", **(headers or {})}, method="POST")
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  data = json.loads(r.read().decode())
+              if data.get("code", 0) not in (0, "0", None):
+                  raise RuntimeError(data)
+              return data
+
+          token = post("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+                       {"app_id": app_id, "app_secret": secret}).get("tenant_access_token")
+          query = urllib.parse.urlencode({"receive_id_type":"chat_id"})
+          post(f"https://open.feishu.cn/open-apis/im/v1/messages?{query}", {
+              "receive_id": chat_id,
+              "msg_type": "text",
+              "content": json.dumps({"text": text}, ensure_ascii=False),
+          }, {"Authorization": f"Bearer {token}"})
+          print("Feishu notification sent.")
+          PY
+
+      - name: Persist valid snapshot
+        if: steps.probe.outputs.rc == '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          tmp="$(mktemp -d)"
+          cleanup() { git worktree remove "$tmp" --force >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          if git show-ref --verify --quiet refs/remotes/origin/monitor-state; then
+            git worktree add "$tmp" -B monitor-state origin/monitor-state
+          else
+            git worktree add --detach "$tmp" HEAD
+            (cd "$tmp" && git checkout --orphan monitor-state && git rm -rf . >/dev/null 2>&1 || true)
+          fi
+          cp current.json "$tmp/openworld.json"
+          (
+            cd "$tmp"
+            git add openworld.json
+            if ! git diff --cached --quiet; then
+              git commit -m "chore: update OpenWorld monitor snapshot"
+              git push origin HEAD:monitor-state
+            fi
+          )
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## OpenWorld public capacity monitor"
+            echo
+            echo "- Anonymous/read-only: yes"
+            echo "- Login/session: none"
+            echo "- Create VPS requests: none"
+            echo "- Schedule: every 15 minutes"
+            echo "- State: monitor-state:openworld.json"
+            echo "- Probe exit: ${{ steps.probe.outputs.rc || 'unknown' }}"
+          } >> "$GITHUB_STEP_SUMMARY"
