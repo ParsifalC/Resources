@@ -37,6 +37,13 @@ jobs:
           if git fetch origin monitor-state:refs/remotes/origin/monitor-state 2>/dev/null \
             && git show origin/monitor-state:openworld.json > previous.json 2>/dev/null; then
             echo "Loaded previous OpenWorld snapshot."
+            python3 - <<'PY'
+          import json
+          p=json.load(open('previous.json'))
+          print('Previous checked_at:', p.get('checked_at'))
+          print('Previous status:', p.get('status', 'legacy/OK'))
+          print('Previous counters:', json.dumps(p.get('counters',{}), sort_keys=True))
+          PY
           else
             : > previous.json
             echo "No previous snapshot; this run initializes state."
@@ -54,8 +61,13 @@ jobs:
           rc=$?
           set -e
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          echo "Probe exit code: $rc"
+          echo "--- current.json ---"
+          cat current.json 2>/dev/null || true
+          echo "--- diff.json ---"
+          cat diff.json 2>/dev/null || true
           if [ "$rc" -ne 0 ]; then
-            echo "Public probe returned UNKNOWN; previous valid state will be preserved."
+            echo "::warning title=OpenWorld probe UNKNOWN::Public counters could not be validated; previous valid state is preserved. See diagnostics above."
           fi
 
       - name: Notify Feishu on public counter change
@@ -66,59 +78,35 @@ jobs:
           python3 - <<'PY'
           import json, os, sys, urllib.parse, urllib.request
           from datetime import datetime, timezone, timedelta
-
-          c = json.load(open("current.json"))
-          d = json.load(open("diff.json"))
-          if d.get("initialized") or not d.get("changed"):
-              print("No counter change requiring notification.")
-              raise SystemExit(0)
-
-          labels = {"nodes": "Nodes", "vps": "VPS", "ips": "IPs", "users": "Users"}
-          lines = ["📡 OpenWorld 公开容量数量变化", "━━━━━━━━━━━━━━━━━━", ""]
-          for key, x in (d.get("counters") or {}).items():
-              before, after, delta = x.get("before"), x.get("after"), x.get("delta")
-              suffix = "" if delta is None else f" ({delta:+d})"
-              lines.append(f"• {labels.get(key, key)}: {before} → {after}{suffix}")
-          lines += [
-              "",
-              "⚠️ 这是匿名公开数量变化信号，不代表 Free VPS 已补货。",
-              "🔒 本监控不登录、不使用 Session、不提交 Create VPS。",
-          ]
-          checked = c.get("checked_at")
+          c=json.load(open('current.json')); d=json.load(open('diff.json'))
+          if d.get('initialized') or not d.get('changed'):
+              print('No counter change requiring notification.'); raise SystemExit(0)
+          labels={'nodes':'Nodes','vps':'VPS','ips':'IPs','users':'Users'}
+          lines=['📡 OpenWorld 公开容量数量变化','━━━━━━━━━━━━━━━━━━','']
+          for key,x in (d.get('counters') or {}).items():
+              before,after,delta=x.get('before'),x.get('after'),x.get('delta')
+              suffix='' if delta is None else f' ({delta:+d})'
+              lines.append(f'• {labels.get(key,key)}: {before} → {after}{suffix}')
+          lines += ['', '⚠️ 这是匿名公开数量变化信号，不代表 Free VPS 已补货。', '🔒 本监控不登录、不使用 Session、不提交 Create VPS。']
+          checked=c.get('checked_at')
           if checked:
               try:
-                  dt = datetime.fromisoformat(checked.replace("Z", "+00:00"))
-                  checked = dt.astimezone(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S (UTC+8)")
-              except ValueError:
-                  pass
-          lines += [f"🕒 检测时间：{checked or 'unknown'}", "🌐 https://openworld.eu.org/"]
-          text = "\n".join(lines)
-
-          app_id = os.environ.get("FEISHU_APP_ID", "").strip()
-          secret = os.environ.get("FEISHU_APP_SECRET", "").strip()
-          chat_id = os.environ.get("FEISHU_CHAT_ID", "").strip()
+                  dt=datetime.fromisoformat(checked.replace('Z','+00:00')); checked=dt.astimezone(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S (UTC+8)')
+              except ValueError: pass
+          lines += [f'🕒 检测时间：{checked or "unknown"}', '🌐 https://openworld.eu.org/']
+          text='\n'.join(lines)
+          app_id=os.environ.get('FEISHU_APP_ID','').strip(); secret=os.environ.get('FEISHU_APP_SECRET','').strip(); chat_id=os.environ.get('FEISHU_CHAT_ID','').strip()
           if not (app_id and secret and chat_id):
-              print("Feishu secrets incomplete; change detected but notification skipped.", file=sys.stderr)
-              raise SystemExit(0)
-
-          def post(url, payload, headers=None):
-              req = urllib.request.Request(url, json.dumps(payload, ensure_ascii=False).encode(),
-                  {"Content-Type":"application/json", **(headers or {})}, method="POST")
-              with urllib.request.urlopen(req, timeout=30) as r:
-                  data = json.loads(r.read().decode())
-              if data.get("code", 0) not in (0, "0", None):
-                  raise RuntimeError(data)
+              print('Feishu secrets incomplete; change detected but notification skipped.',file=sys.stderr); raise SystemExit(0)
+          def post(url,payload,headers=None):
+              req=urllib.request.Request(url,json.dumps(payload,ensure_ascii=False).encode(),{'Content-Type':'application/json',**(headers or {})},method='POST')
+              with urllib.request.urlopen(req,timeout=30) as r: data=json.loads(r.read().decode())
+              if data.get('code',0) not in (0,'0',None): raise RuntimeError(data)
               return data
-
-          token = post("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
-                       {"app_id": app_id, "app_secret": secret}).get("tenant_access_token")
-          query = urllib.parse.urlencode({"receive_id_type":"chat_id"})
-          post(f"https://open.feishu.cn/open-apis/im/v1/messages?{query}", {
-              "receive_id": chat_id,
-              "msg_type": "text",
-              "content": json.dumps({"text": text}, ensure_ascii=False),
-          }, {"Authorization": f"Bearer {token}"})
-          print("Feishu notification sent.")
+          token=post('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal',{'app_id':app_id,'app_secret':secret}).get('tenant_access_token')
+          query=urllib.parse.urlencode({'receive_id_type':'chat_id'})
+          post(f'https://open.feishu.cn/open-apis/im/v1/messages?{query}',{'receive_id':chat_id,'msg_type':'text','content':json.dumps({'text':text},ensure_ascii=False)},{'Authorization':f'Bearer {token}'})
+          print('Feishu notification sent.')
           PY
 
       - name: Persist valid snapshot
@@ -138,26 +126,26 @@ jobs:
             (cd "$tmp" && git checkout --orphan monitor-state && git rm -rf . >/dev/null 2>&1 || true)
           fi
           cp current.json "$tmp/openworld.json"
-          (
-            cd "$tmp"
-            git add openworld.json
-            if ! git diff --cached --quiet; then
-              git commit -m "chore: update OpenWorld monitor snapshot"
-              git push origin HEAD:monitor-state
-            fi
-          )
+          (cd "$tmp"; git add openworld.json; if ! git diff --cached --quiet; then git commit -m "chore: update OpenWorld monitor snapshot"; git push origin HEAD:monitor-state; else echo "Snapshot unchanged."; fi)
 
       - name: Summary
         if: always()
         shell: bash
         run: |
-          {
-            echo "## OpenWorld public capacity monitor"
-            echo
-            echo "- Anonymous/read-only: yes"
-            echo "- Login/session: none"
-            echo "- Create VPS requests: none"
-            echo "- Schedule: every 15 minutes"
-            echo "- State: monitor-state:openworld.json"
-            echo "- Probe exit: ${{ steps.probe.outputs.rc || 'unknown' }}"
-          } >> "$GITHUB_STEP_SUMMARY"
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, os
+          print('## OpenWorld public capacity monitor\n')
+          print('- Anonymous/read-only: `yes`')
+          print('- Login/session: `none`')
+          print('- Create VPS requests: `none`')
+          print('- Schedule: `every 15 minutes`')
+          print('- State: `monitor-state:openworld.json`')
+          try:
+              c=json.load(open('current.json')); d=json.load(open('diff.json'))
+              print(f"- Probe status: `{c.get('status','UNKNOWN')}`")
+              print(f"- Counters: `{json.dumps(c.get('counters',{}),sort_keys=True)}`")
+              print(f"- Changed: `{d.get('changed')}`")
+              if c.get('errors'): print(f"- Errors: `{json.dumps(c['errors'])}`")
+          except Exception as e:
+              print(f'- Diagnostics unavailable: `{type(e).__name__}: {e}`')
+          PY
