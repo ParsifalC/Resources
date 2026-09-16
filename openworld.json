@@ -1,14 +1,13 @@
 {
-  "checked_at": "2026-09-16T07:51:35.643305Z",
+  "checked_at": "2026-09-16T21:29:57.194675Z",
   "source": "https://openworld.eu.org/",
   "anonymous": true,
   "read_only": true,
   "status": "OK",
   "counters": {
     "nodes": 3,
-    "vps": 146,
-    "ips": 2220,
-    "users": 1400
+    "vps": 147,
+    "ips": 2220
   },
   "errors": [],
   "diagnostics": {
@@ -17,21 +16,19 @@
       "content_type": "text/html; charset=utf-8",
       "content_length": 19709,
       "final_url": "https://openworld.eu.org/",
-      "sha256": "87b9cec5fbc1c962123538de2009238f910ad50c12d91cb83298568d9d749df1",
+      "sha256": "bee4da580129bfd2da74e2fb160e7cc0087a15bcebbcbb1ee338319f16dfb618",
       "visible_text_length": 1176,
       "title": "Openworld · Free IPv6 VPS"
     },
     "matched_patterns": {
       "nodes": "\\bNodes\\s*:\\s*([0-9][0-9,]*)\\b",
       "vps": "\\bVPS\\s*:\\s*([0-9][0-9,]*)\\b",
-      "ips": "\\bIPs\\s*:\\s*([0-9][0-9,]*)\\b",
-      "users": "\\bUsers\\s*:\\s*([0-9][0-9,]*)\\b"
+      "ips": "\\bIPs\\s*:\\s*([0-9][0-9,]*)\\b"
     },
     "label_contexts": {
-      "nodes": "ld:~ $ ssh [email protected] # fastfetch -- ------ ---- ---- ---- - ---- ---- ----- ----- Nodes : 3 ----- --------- ----- VPS : 146 ----- ------------ ----- IPs : 2,220 ----- --------- ",
+      "nodes": "ld:~ $ ssh [email protected] # fastfetch -- ------ ---- ---- ---- - ---- ---- ----- ----- Nodes : 3 ----- --------- ----- VPS : 147 ----- ------------ ----- IPs : 2,220 ----- --------- ",
       "vps": "Openworld · Free IPv6 VPS ◈ Openworld Midnight Catppuccin Mocha Dracula Nord Gruvbox Tokyo Night Solarized Dark Sta",
-      "ips": " ---- ---- ----- ----- Nodes : 3 ----- --------- ----- VPS : 146 ----- ------------ ----- IPs : 2,220 ----- --------- ----- Users : 1,400 ----- ---- ----- ----- ----- ---- ----- -----",
-      "users": "---- --------- ----- VPS : 146 ----- ------------ ----- IPs : 2,220 ----- --------- ----- Users : 1,400 ----- ---- ----- ----- ----- ---- ----- ------ -- FAQ Is it really free? Yes. The"
+      "ips": " ---- ---- ----- ----- Nodes : 3 ----- --------- ----- VPS : 147 ----- ------------ ----- IPs : 2,220 ----- --------- ----- Users : 1,427 ----- ---- ----- ----- ----- ---- ----- -----"
     }
   }
 }
