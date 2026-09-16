@@ -1,0 +1,97 @@
+name: OpenWorld create page capture
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Capture authenticated Create VPS HTML
+        shell: bash
+        env:
+          OPENWORLD_SESSIONCOOKIE: ${{ secrets.OPENWORLD_SESSIONCOOKIE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import urllib.request
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          url = "https://openworld.eu.org/createvps"
+          cookie = os.environ.get("OPENWORLD_SESSIONCOOKIE", "").strip()
+          if not cookie:
+              raise SystemExit("OPENWORLD_SESSIONCOOKIE is missing")
+
+          req = urllib.request.Request(
+              url,
+              headers={
+                  "User-Agent": "Mozilla/5.0 (compatible; Resources-OpenWorld-Capture/1.0; +https://github.com/ParsifalC/Resources)",
+                  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                  "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                  "Cache-Control": "no-cache",
+                  "Pragma": "no-cache",
+                  "Referer": "https://openworld.eu.org/dashboard",
+                  "Cookie": f"sessioncookie={cookie}",
+              },
+              method="GET",
+          )
+
+          with urllib.request.urlopen(req, timeout=30) as response:
+              body = response.read()
+              meta = {
+                  "checked_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                  "method": "GET",
+                  "source": url,
+                  "http_status": response.getcode(),
+                  "final_url": response.geturl(),
+                  "content_type": response.headers.get("Content-Type"),
+                  "content_length": len(body),
+                  "sha256": hashlib.sha256(body).hexdigest(),
+                  "cookie_scope": "sessioncookie-only",
+                  "read_only": True,
+              }
+
+          Path("openworld-createvps.html").write_bytes(body)
+          Path("openworld-createvps-meta.json").write_text(
+              json.dumps(meta, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(meta, ensure_ascii=False, sort_keys=True))
+          print("Saved full response body to openworld-createvps.html; body is not printed to logs.")
+          PY
+
+      - name: Upload captured page
+        uses: actions/upload-artifact@v4
+        with:
+          name: openworld-createvps-page
+          path: |
+            openworld-createvps.html
+            openworld-createvps-meta.json
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## OpenWorld Create VPS capture'
+            echo
+            echo '- Trigger: `workflow_dispatch only`'
+            echo '- Request: `GET /createvps`'
+            echo '- Cookie: `sessioncookie only`'
+            echo '- Form submission: `none`'
+            echo '- Artifact: `openworld-createvps-page`'
+            echo '- Artifact retention: `1 day`'
+            echo '- Full HTML printed to logs: `no`'
+          } >> "$GITHUB_STEP_SUMMARY"
