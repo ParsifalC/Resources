@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Read-only authenticated probe for OpenWorld's Create VPS page.
+"""Read-only authenticated OpenWorld Free VPS inventory probe.
 
-This probe performs exactly one HTTP GET. It never submits forms or creates a VPS.
-The session cookie is read from OPENWORLD_SESSIONCOOKIE and is never printed.
-The parser emits only sanitized control metadata; it never logs hidden input values,
-CSRF tokens, cookies, or the full response body.
+Performs exactly one GET to /createvps using OPENWORLD_SESSIONCOOKIE.
+It never submits the create form. Inventory is derived from the structured
+JSON embedded in each plan-card button's data-plan attribute.
 """
 
+import argparse
 import hashlib
 import html as html_module
 import json
@@ -21,7 +21,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 URL = "https://openworld.eu.org/createvps"
-UA = "Mozilla/5.0 (compatible; Resources-OpenWorld-Auth-Probe/1.2; +https://github.com/ParsifalC/Resources)"
+UA = "Mozilla/5.0 (compatible; Resources-OpenWorld-Inventory-Probe/2.0; +https://github.com/ParsifalC/Resources)"
 
 
 class CreatePageParser(HTMLParser):
@@ -29,18 +29,7 @@ class CreatePageParser(HTMLParser):
         super().__init__(convert_charrefs=True)
         self._ignored_depth = 0
         self.visible_parts = []
-        self.labels = {}
-        self._label_for = None
-        self._label_parts = []
-        self.selects = []
-        self._select = None
-        self._option = None
-        self._option_parts = []
-        self.inputs = []
-        self.buttons = []
-        self._button = None
-        self._button_parts = []
-        self.forms = []
+        self.plan_cards = []
 
     @staticmethod
     def _attrs(attrs):
@@ -54,81 +43,24 @@ class CreatePageParser(HTMLParser):
             return
         if self._ignored_depth:
             return
-        if tag == "label":
-            self._label_for = data.get("for") or None
-            self._label_parts = []
-        elif tag == "form":
-            self.forms.append({
-                "method": (data.get("method") or "GET").upper(),
-                "action": data.get("action") or None,
-            })
-        elif tag == "select":
-            self._select = {
-                "id": data.get("id") or None,
-                "name": data.get("name") or None,
-                "disabled": "disabled" in data,
-                "required": "required" in data,
-                "options": [],
-            }
-        elif tag == "option" and self._select is not None:
-            self._option = {
-                "disabled": "disabled" in data,
-                "selected": "selected" in data,
-                "value_present": bool(data.get("value")),
-                "text": "",
-            }
-            self._option_parts = []
-        elif tag == "input":
-            input_type = (data.get("type") or "text").lower()
-            if input_type != "hidden":
-                self.inputs.append({
-                    "type": input_type,
-                    "id": data.get("id") or None,
-                    "name": data.get("name") or None,
-                    "disabled": "disabled" in data,
-                    "checked": "checked" in data,
-                    "required": "required" in data,
-                    "value_present": bool(data.get("value")),
-                    "label": None,
-                })
-        elif tag == "button":
-            self._button = {
-                "type": (data.get("type") or "submit").lower(),
-                "id": data.get("id") or None,
-                "name": data.get("name") or None,
-                "disabled": "disabled" in data,
-                "value_present": bool(data.get("value")),
-                "text": "",
-            }
-            self._button_parts = []
+        if tag == "button" and "plan-card-btn" in (data.get("class") or "").split():
+            raw_plan = data.get("data-plan")
+            if raw_plan:
+                try:
+                    plan = json.loads(raw_plan)
+                    self.plan_cards.append({
+                        "disabled": "disabled" in data,
+                        "plan": plan,
+                    })
+                except json.JSONDecodeError:
+                    self.plan_cards.append({
+                        "disabled": "disabled" in data,
+                        "parse_error": "invalid data-plan JSON",
+                    })
 
     def handle_endtag(self, tag):
-        tag = tag.lower()
-        if tag in {"script", "style", "noscript", "template"}:
-            if self._ignored_depth:
-                self._ignored_depth -= 1
-            return
-        if self._ignored_depth:
-            return
-        if tag == "label":
-            text = " ".join(" ".join(self._label_parts).split())
-            if self._label_for and text:
-                self.labels[self._label_for] = text[:200]
-            self._label_for = None
-            self._label_parts = []
-        elif tag == "option" and self._option is not None and self._select is not None:
-            self._option["text"] = " ".join(" ".join(self._option_parts).split())[:240]
-            self._select["options"].append(self._option)
-            self._option = None
-            self._option_parts = []
-        elif tag == "select" and self._select is not None:
-            self.selects.append(self._select)
-            self._select = None
-        elif tag == "button" and self._button is not None:
-            self._button["text"] = " ".join(" ".join(self._button_parts).split())[:240]
-            self.buttons.append(self._button)
-            self._button = None
-            self._button_parts = []
+        if tag.lower() in {"script", "style", "noscript", "template"} and self._ignored_depth:
+            self._ignored_depth -= 1
 
     def handle_data(self, data):
         if self._ignored_depth:
@@ -136,205 +68,159 @@ class CreatePageParser(HTMLParser):
         text = " ".join(data.split())
         if text:
             self.visible_parts.append(text)
-            if self._label_for is not None:
-                self._label_parts.append(text)
-            if self._option is not None:
-                self._option_parts.append(text)
-            if self._button is not None:
-                self._button_parts.append(text)
 
-    def finalize(self):
-        for select in self.selects:
-            key = select.get("id") or select.get("name")
-            select["label"] = self.labels.get(key) if key else None
-        for input_control in self.inputs:
-            key = input_control.get("id") or input_control.get("name")
-            input_control["label"] = self.labels.get(key) if key else None
+    @property
+    def visible_text(self):
         return " ".join(self.visible_parts)
 
 
 def parse_page(raw_html):
     parser = CreatePageParser()
     parser.feed(raw_html)
-    text = parser.finalize()
-    return text, parser.selects, parser.inputs, parser.buttons, parser.forms
+    return parser.visible_text, parser.plan_cards
 
 
 def extract_title(raw_html):
     match = re.search(r"<title[^>]*>(.*?)</title>", raw_html, re.I | re.S)
     if not match:
         return None
-    return " ".join(html_module.unescape(re.sub(r"<[^>]+>", " ", match.group(1))).split())[:200]
+    title = html_module.unescape(re.sub(r"<[^>]+>", " ", match.group(1)))
+    return " ".join(title.split())[:200]
 
 
 def classify_auth(final_url, title, text):
     lower = text.lower()
     parsed = urllib.parse.urlparse(final_url)
+    on_create_path = parsed.path.rstrip("/") == "/createvps"
     create_markers = {
+        "deploy_vps": "deploy a vps" in lower,
+        "available_plans": "available plans" in lower,
         "create_vps": "create vps" in lower,
         "plan": bool(re.search(r"\bplan\b", lower)),
         "location": bool(re.search(r"\blocation\b", lower)),
-        "hostname": bool(re.search(r"\bhostname\b", lower)),
-        "operating_system": "operating system" in lower or bool(re.search(r"\bos\b", lower)),
     }
     login_markers = {
         "sign_in": "sign in" in lower or "signin" in lower,
         "log_in": "log in" in lower or "login" in lower,
         "clerk": "clerk" in lower,
     }
-    on_create_path = parsed.path.rstrip("/") == "/createvps"
     create_score = sum(create_markers.values())
     login_score = sum(login_markers.values())
-    if on_create_path and create_markers["create_vps"] and create_score >= 2 and login_score == 0:
-        state = "AUTHENTICATED"
-        reason = "remained on /createvps and authenticated create-page markers were present"
-    elif not on_create_path or login_score >= 2:
-        state = "UNAUTHENTICATED"
-        reason = "request left /createvps or login markers were detected"
-    else:
-        state = "UNKNOWN"
-        reason = "response did not match the authenticated or unauthenticated signatures confidently"
-    return state, reason, {
+    if on_create_path and create_score >= 2 and login_score == 0:
+        return "AUTHENTICATED", "authenticated Create VPS page detected", {
+            "on_create_path": True,
+            "create_markers": create_markers,
+            "login_markers": login_markers,
+        }
+    if not on_create_path or login_score >= 2:
+        return "UNAUTHENTICATED", "request left /createvps or login markers were detected", {
+            "on_create_path": on_create_path,
+            "create_markers": create_markers,
+            "login_markers": login_markers,
+        }
+    return "UNKNOWN", "Create VPS authentication signature was inconclusive", {
         "on_create_path": on_create_path,
         "create_markers": create_markers,
         "login_markers": login_markers,
-        "create_score": create_score,
-        "login_score": login_score,
-        "title_mentions_create": bool(title and "create" in title.lower()),
     }
 
 
-def _identity(control):
-    return " ".join(str(control.get(k) or "") for k in ("id", "name", "label", "text")).lower()
-
-
-def summarize_select(select):
+def sanitize_location(loc):
     return {
-        "id": select.get("id"),
-        "name": select.get("name"),
-        "label": select.get("label"),
-        "disabled": bool(select.get("disabled")),
-        "required": bool(select.get("required")),
-        "options": [
-            {
-                "text": option.get("text"),
-                "disabled": bool(option.get("disabled")),
-                "selected": bool(option.get("selected")),
-                "value_present": bool(option.get("value_present")),
-            }
-            for option in select.get("options", [])[:50]
-        ],
-        "option_count": len(select.get("options", [])),
+        "name": loc.get("name"),
+        "code": loc.get("code"),
+        "available": bool(loc.get("available")),
+        "status_text": loc.get("status_text"),
+        "vps_count": loc.get("vps_count"),
     }
 
 
-def contexts(text, keywords, radius=150):
-    result = {}
-    lower = text.lower()
-    for keyword in keywords:
-        needle = keyword.lower()
-        start = 0
-        snippets = []
-        while len(snippets) < 4:
-            pos = lower.find(needle, start)
-            if pos < 0:
-                break
-            left = max(0, pos - radius)
-            right = min(len(text), pos + len(keyword) + radius)
-            snippets.append(text[left:right])
-            start = pos + len(needle)
-        if snippets:
-            result[keyword] = snippets
-    return result
+def sanitize_plan_card(card):
+    plan = card.get("plan") or {}
+    locations = [sanitize_location(x) for x in (plan.get("locations") or []) if isinstance(x, dict)]
+    return {
+        "name": plan.get("name"),
+        "price": plan.get("price"),
+        "stock": plan.get("stock"),
+        "active": bool(plan.get("active")),
+        "node_type": plan.get("node_type"),
+        "cpu": plan.get("cpu"),
+        "ram": plan.get("ram"),
+        "disk": plan.get("disk"),
+        "netmbps": plan.get("netmbps"),
+        "bandwidth_gb": plan.get("bandwidth_gb"),
+        "button_disabled": bool(card.get("disabled")),
+        "locations": locations,
+    }
 
 
-def inspect_inventory(text, selects, inputs, buttons):
-    lower = text.lower()
-    out_of_stock_phrases = [
-        "no available servers", "no servers available", "out of stock",
-        "no available node", "no available nodes", "no locations available",
-        "no location available",
-    ]
-    matched_out_of_stock = [phrase for phrase in out_of_stock_phrases if phrase in lower]
+def inspect_inventory(plan_cards):
+    parsed_cards = [card for card in plan_cards if isinstance(card.get("plan"), dict)]
+    plans = [sanitize_plan_card(card) for card in parsed_cards]
+    free_cards = []
+    for card in parsed_cards:
+        plan = card["plan"]
+        name = str(plan.get("name") or "")
+        try:
+            price = float(plan.get("price"))
+        except (TypeError, ValueError):
+            price = None
+        if re.search(r"\bfree\b", name, re.I) or price == 0:
+            free_cards.append(card)
 
-    roles = {"plan": [], "location": [], "node": [], "server": []}
-    for select in selects:
-        ident = _identity(select)
-        if "plan" in ident:
-            roles["plan"].append(select)
-        if any(word in ident for word in ("location", "region", "datacenter", "data center")):
-            roles["location"].append(select)
-        if "node" in ident:
-            roles["node"].append(select)
-        if "server" in ident:
-            roles["server"].append(select)
-
-    plan_options = []
-    for select in roles["plan"]:
-        plan_options.extend(select.get("options", []))
-    free_options = [option for option in plan_options if re.search(r"\bfree\b", option.get("text", ""), re.I)]
-    free_enabled = [option for option in free_options if not option.get("disabled")]
-    free_selected = [option for option in free_options if option.get("selected") and not option.get("disabled")]
-
-    relevant_inputs = []
-    for control in inputs:
-        ident = _identity(control)
-        if any(word in ident for word in ("free", "plan", "location", "region", "datacenter", "node", "server")):
-            relevant_inputs.append(control)
-    relevant_buttons = []
-    for control in buttons:
-        ident = _identity(control)
-        if any(word in ident for word in ("free", "plan", "location", "region", "datacenter", "node", "server", "create")):
-            relevant_buttons.append(control)
-
-    capacity_selects = roles["node"] + roles["server"] + roles["location"]
-    usable_capacity_options = []
-    for select in capacity_selects:
-        for option in select.get("options", []):
-            text_value = (option.get("text") or "").strip()
-            placeholder = not text_value or bool(re.search(
-                r"^(select|choose|please select|none|n/a|no available|loading)", text_value, re.I
-            ))
-            if option.get("value_present") and not option.get("disabled") and not placeholder:
-                usable_capacity_options.append({
-                    "field": select.get("id") or select.get("name") or select.get("label"),
-                    "text": text_value,
-                })
-
-    key_contexts = contexts(text, [
-        "Free", "Plan", "Location", "Region", "Node", "Server", "out of stock", "no available"
-    ])
     evidence = {
-        "matched_out_of_stock_phrases": matched_out_of_stock,
-        "free_plan_option_count": len(free_options),
-        "free_plan_enabled_count": len(free_enabled),
-        "free_plan_selected_count": len(free_selected),
-        "usable_capacity_option_count": len(usable_capacity_options),
-        "usable_capacity_options": usable_capacity_options[:30],
-        "role_select_counts": {key: len(value) for key, value in roles.items()},
-        "relevant_selects": {key: [summarize_select(select) for select in value] for key, value in roles.items()},
-        "input_count": len(inputs),
-        "button_count": len(buttons),
-        "relevant_inputs": relevant_inputs[:50],
-        "relevant_buttons": relevant_buttons[:50],
-        "keyword_contexts": key_contexts,
+        "plan_card_count": len(plan_cards),
+        "parsed_plan_count": len(parsed_cards),
+        "free_plan_count": len(free_cards),
+        "plans": plans,
+        "free_plans": [sanitize_plan_card(card) for card in free_cards],
     }
+    if not free_cards:
+        return "UNKNOWN", "no Free plan card was found in structured data-plan JSON", evidence
 
-    if matched_out_of_stock and free_options:
-        return "OUT_OF_STOCK", "Free plan is present and the page explicitly reports no available capacity", evidence
-    if free_selected and usable_capacity_options:
-        return "AVAILABLE", "selected Free plan and usable location/node/server options are present in the GET response", evidence
-    if free_selected and not usable_capacity_options:
-        return "OUT_OF_STOCK", "selected Free plan has no usable location/node/server option", evidence
-    if free_enabled and usable_capacity_options:
-        return "UNKNOWN", "Free plan is enabled but not selected; visible capacity may belong to another plan", evidence
-    if free_options:
-        return "UNKNOWN", "Free plan is present but the GET response does not prove current Free capacity", evidence
-    return "UNKNOWN", "HTML has no select-based Free option; inspect radio/button/label evidence and keyword contexts", evidence
+    valid_stocks = []
+    contradictory = False
+    any_active = False
+    all_disabled = True
+    for card in free_cards:
+        plan = card["plan"]
+        any_active = any_active or bool(plan.get("active"))
+        all_disabled = all_disabled and bool(card.get("disabled"))
+        try:
+            stock = int(plan.get("stock"))
+        except (TypeError, ValueError):
+            continue
+        valid_stocks.append(stock)
+        if stock > 0 and card.get("disabled"):
+            contradictory = True
+        if stock <= 0 and not card.get("disabled"):
+            contradictory = True
+
+    evidence["free_stock_total"] = sum(valid_stocks) if valid_stocks else None
+    evidence["free_button_all_disabled"] = all_disabled
+    evidence["free_any_active"] = any_active
+
+    if contradictory:
+        return "UNKNOWN", "Free plan stock and button enabled/disabled state contradict each other", evidence
+    if not valid_stocks:
+        return "UNKNOWN", "Free plan was found but did not expose numeric stock", evidence
+    if any(stock > 0 for stock in valid_stocks) and any_active and not all_disabled:
+        return "AVAILABLE", "Free plan reports positive stock and its deploy card is enabled", evidence
+    if all(stock <= 0 for stock in valid_stocks):
+        return "OUT_OF_STOCK", "Free plan explicitly reports zero stock", evidence
+    return "UNKNOWN", "Free plan structured inventory could not be classified confidently", evidence
+
+
+def write_result(path, result):
+    Path(path).write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def main():
-    output = Path(sys.argv[1] if len(sys.argv) > 1 else "auth_probe.json")
+    ap = argparse.ArgumentParser()
+    ap.add_argument("output", nargs="?", default="auth_probe.json")
+    ap.add_argument("--html-output")
+    args = ap.parse_args()
+
     checked_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     cookie = os.environ.get("OPENWORLD_SESSIONCOOKIE", "").strip()
     result = {
@@ -354,11 +240,11 @@ def main():
     if not cookie:
         result["reason"] = "OPENWORLD_SESSIONCOOKIE is missing or empty"
         result["errors"].append("missing OPENWORLD_SESSIONCOOKIE")
-        output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        print("Authenticated probe: state=UNKNOWN reason=missing secret")
+        write_result(args.output, result)
+        print("Authenticated inventory probe: auth=UNKNOWN inventory=UNKNOWN reason=missing secret")
         raise SystemExit(3)
 
-    request = urllib.request.Request(
+    req = urllib.request.Request(
         URL,
         headers={
             "User-Agent": UA,
@@ -372,7 +258,7 @@ def main():
         method="GET",
     )
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with urllib.request.urlopen(req, timeout=30) as response:
             body = response.read()
             final_url = response.geturl()
             status = response.getcode()
@@ -386,18 +272,21 @@ def main():
     except Exception as exc:
         result["reason"] = f"request failed: {type(exc).__name__}: {exc}"
         result["errors"].append(result["reason"])
-        output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        print(f"Authenticated probe: state=UNKNOWN error={type(exc).__name__}")
+        write_result(args.output, result)
+        print(f"Authenticated inventory probe: auth=UNKNOWN inventory=UNKNOWN error={type(exc).__name__}")
         raise SystemExit(3)
 
+    if args.html_output:
+        Path(args.html_output).write_bytes(body)
+
     raw_html = body.decode("utf-8", errors="replace")
-    text, selects, inputs, buttons, forms = parse_page(raw_html)
+    text, plan_cards = parse_page(raw_html)
     title = extract_title(raw_html)
     auth_state, reason, markers = classify_auth(final_url, title, text)
-    inventory_state, inventory_reason, inventory = inspect_inventory(text, selects, inputs, buttons)
+    inventory_state, inventory_reason, inventory = inspect_inventory(plan_cards)
     if auth_state != "AUTHENTICATED":
         inventory_state = "UNKNOWN"
-        inventory_reason = "inventory was not trusted because authentication was not confirmed"
+        inventory_reason = "inventory ignored because authentication was not confirmed"
 
     result.update({
         "auth_state": auth_state,
@@ -413,18 +302,13 @@ def main():
             "sha256": hashlib.sha256(body).hexdigest(),
             "title": title,
             "visible_text_length": len(text),
-            "select_count": len(selects),
-            "input_count": len(inputs),
-            "button_count": len(buttons),
-            "forms": forms[:10],
             "markers": markers,
         },
     })
-    output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"Authenticated probe: state={auth_state} reason={reason}")
-    print("Authenticated probe diagnostics:", json.dumps(result["diagnostics"], ensure_ascii=False, sort_keys=True))
-    print(f"Inventory probe: state={inventory_state} reason={inventory_reason}")
+    write_result(args.output, result)
+    print(f"Authenticated inventory probe: auth={auth_state} inventory={inventory_state}")
     print("Inventory evidence:", json.dumps(inventory, ensure_ascii=False, sort_keys=True))
+
     if auth_state == "AUTHENTICATED":
         raise SystemExit(0)
     if auth_state == "UNAUTHENTICATED":
