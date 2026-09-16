@@ -214,6 +214,7 @@ jobs:
               try:
                   a=json.load(open('auth_probe.json'))
                   diag=a.get('diagnostics') or {}
+                  inv=a.get('inventory') or {}
                   print('\n### Authenticated probe')
                   print(f"- State: `{a.get('auth_state','UNKNOWN')}`")
                   print(f"- Cookie scope: `{a.get('cookie_scope','unknown')}`")
@@ -222,9 +223,19 @@ jobs:
                   print(f"- Final URL: `{diag.get('final_url','unknown')}`")
                   print(f"- Title: `{diag.get('title','unknown')}`")
                   print(f"- Content length: `{diag.get('content_length','unknown')}`")
+                  print('\n### Free inventory probe')
+                  print(f"- State: `{a.get('inventory_state','UNKNOWN')}`")
+                  print(f"- Reason: `{a.get('inventory_reason') or 'unknown'}`")
+                  print(f"- Free options: `{inv.get('free_plan_option_count','unknown')}`")
+                  print(f"- Free enabled: `{inv.get('free_plan_enabled_count','unknown')}`")
+                  print(f"- Free selected: `{inv.get('free_plan_selected_count','unknown')}`")
+                  print(f"- Usable capacity options: `{inv.get('usable_capacity_option_count','unknown')}`")
+                  print(f"- Relevant select counts: `{json.dumps(inv.get('role_select_counts',{}),sort_keys=True)}`")
+                  if inv.get('matched_out_of_stock_phrases'):
+                      print(f"- Out-of-stock markers: `{json.dumps(inv['matched_out_of_stock_phrases'])}`")
                   if a.get('errors'): print(f"- Errors: `{json.dumps(a['errors'])}`")
               except Exception as e:
-                  print(f'- Auth diagnostics unavailable: `{type(e).__name__}: {e}`')
+                  print(f'- Auth/inventory diagnostics unavailable: `{type(e).__name__}: {e}`')
           else:
               print('\n### Authenticated probe')
               print('- State: `SKIPPED`')
