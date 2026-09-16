@@ -8,6 +8,7 @@ on:
     branches: [master]
     paths:
       - "scripts/openworld_monitor.py"
+      - "scripts/openworld_auth_probe.py"
       - ".github/workflows/openworld-monitor.yml"
 
 permissions:
@@ -70,6 +71,34 @@ jobs:
             echo "::warning title=OpenWorld probe UNKNOWN::Public counters could not be validated; previous valid state is preserved. See diagnostics above."
           fi
 
+      - name: Probe authenticated Create VPS page
+        id: auth_probe
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          OPENWORLD_SESSIONCOOKIE: ${{ secrets.OPENWORLD_SESSIONCOOKIE }}
+        run: |
+          set +e
+          python3 scripts/openworld_auth_probe.py auth_probe.json
+          rc=$?
+          set -e
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          echo "Authenticated probe exit code: $rc"
+          echo "--- auth_probe.json ---"
+          cat auth_probe.json 2>/dev/null || true
+          case "$rc" in
+            0)
+              echo "Authenticated probe confirmed that sessioncookie alone reaches the Create VPS page."
+              ;;
+            2)
+              echo "::warning title=OpenWorld sessioncookie rejected::sessioncookie alone did not preserve the authenticated Create VPS page."
+              ;;
+            *)
+              echo "::warning title=OpenWorld auth probe UNKNOWN::Could not determine whether sessioncookie alone is sufficient. See diagnostics above."
+              ;;
+          esac
+          exit 0
+
       - name: Notify Feishu on public counter change
         if: steps.probe.outputs.rc == '0'
         shell: bash
@@ -87,7 +116,7 @@ jobs:
               before,after,delta=x.get('before'),x.get('after'),x.get('delta')
               suffix='' if delta is None else f' ({delta:+d})'
               lines.append(f'• {labels.get(key,key)}: {before} → {after}{suffix}')
-          lines += ['', '⚠️ 这是匿名公开数量变化信号，不代表 Free VPS 已补货。', '🔒 本监控不登录、不使用 Session、不提交 Create VPS。']
+          lines += ['', '⚠️ 这是匿名公开数量变化信号，不代表 Free VPS 已补货。', '🔒 定时监控不登录、不使用 Session、不提交 Create VPS。']
           checked=c.get('checked_at')
           if checked:
               try:
@@ -118,7 +147,6 @@ jobs:
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json
           d=json.load(open('diff.json'))
-          # Persist the first valid baseline, then only real counter changes.
           should_persist=bool(d.get('initialized') or d.get('changed'))
           print(f"persist={'true' if should_persist else 'false'}")
           PY
@@ -161,21 +189,41 @@ jobs:
         shell: bash
         run: |
           python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
-          import json
+          import json, os
           print('## OpenWorld public capacity monitor\n')
-          print('- Anonymous/read-only: `yes`')
-          print('- Login/session: `none`')
-          print('- Create VPS requests: `none`')
+          print('- Anonymous/read-only public probe: `yes`')
+          print('- Scheduled authenticated requests: `none`')
+          print('- Authenticated Create VPS probe: `workflow_dispatch only, GET only`')
+          print('- Create VPS POST/submission: `none`')
           print('- Schedule: `every 15 minutes`')
           print('- State: `monitor-state:openworld.json`')
           try:
               c=json.load(open('current.json')); d=json.load(open('diff.json'))
-              print(f"- Probe status: `{c.get('status','UNKNOWN')}`")
+              print(f"- Public probe status: `{c.get('status','UNKNOWN')}`")
               print(f"- Counters: `{json.dumps(c.get('counters',{}),sort_keys=True)}`")
               print(f"- Changed: `{d.get('changed')}`")
               print(f"- Initial baseline: `{d.get('initialized')}`")
               print(f"- Snapshot persisted: `{'yes' if d.get('initialized') or d.get('changed') else 'no'}`")
-              if c.get('errors'): print(f"- Errors: `{json.dumps(c['errors'])}`")
+              if c.get('errors'): print(f"- Public probe errors: `{json.dumps(c['errors'])}`")
           except Exception as e:
-              print(f'- Diagnostics unavailable: `{type(e).__name__}: {e}`')
+              print(f'- Public diagnostics unavailable: `{type(e).__name__}: {e}`')
+          if os.path.exists('auth_probe.json'):
+              try:
+                  a=json.load(open('auth_probe.json'))
+                  diag=a.get('diagnostics') or {}
+                  print('\n### Authenticated probe')
+                  print(f"- State: `{a.get('auth_state','UNKNOWN')}`")
+                  print(f"- Cookie scope: `{a.get('cookie_scope','unknown')}`")
+                  print(f"- Reason: `{a.get('reason') or 'unknown'}`")
+                  print(f"- HTTP status: `{diag.get('http_status','unknown')}`")
+                  print(f"- Final URL: `{diag.get('final_url','unknown')}`")
+                  print(f"- Title: `{diag.get('title','unknown')}`")
+                  print(f"- Content length: `{diag.get('content_length','unknown')}`")
+                  if a.get('errors'): print(f"- Errors: `{json.dumps(a['errors'])}`")
+              except Exception as e:
+                  print(f'- Auth diagnostics unavailable: `{type(e).__name__}: {e}`')
+          else:
+              print('\n### Authenticated probe')
+              print('- State: `SKIPPED`')
+              print('- Reason: `only workflow_dispatch runs perform the authenticated GET`')
           PY
