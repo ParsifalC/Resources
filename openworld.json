@@ -1,0 +1,37 @@
+{
+  "checked_at": "2026-09-16T05:07:32.673118Z",
+  "source": "https://openworld.eu.org/",
+  "anonymous": true,
+  "read_only": true,
+  "status": "OK",
+  "counters": {
+    "nodes": 3,
+    "vps": 146,
+    "ips": 2220,
+    "users": 1399
+  },
+  "errors": [],
+  "diagnostics": {
+    "fetch": {
+      "http_status": 200,
+      "content_type": "text/html; charset=utf-8",
+      "content_length": 19709,
+      "final_url": "https://openworld.eu.org/",
+      "sha256": "6f2da2eca31155d1d9357a071ab4eebe26fd8b8efd19ab197d9823d333d73df4",
+      "visible_text_length": 1176,
+      "title": "Openworld · Free IPv6 VPS"
+    },
+    "matched_patterns": {
+      "nodes": "\\bNodes\\s*:\\s*([0-9][0-9,]*)\\b",
+      "vps": "\\bVPS\\s*:\\s*([0-9][0-9,]*)\\b",
+      "ips": "\\bIPs\\s*:\\s*([0-9][0-9,]*)\\b",
+      "users": "\\bUsers\\s*:\\s*([0-9][0-9,]*)\\b"
+    },
+    "label_contexts": {
+      "nodes": "ld:~ $ ssh [email protected] # fastfetch -- ------ ---- ---- ---- - ---- ---- ----- ----- Nodes : 3 ----- --------- ----- VPS : 146 ----- ------------ ----- IPs : 2,220 ----- --------- ",
+      "vps": "Openworld · Free IPv6 VPS ◈ Openworld Midnight Catppuccin Mocha Dracula Nord Gruvbox Tokyo Night Solarized Dark Sta",
+      "ips": " ---- ---- ----- ----- Nodes : 3 ----- --------- ----- VPS : 146 ----- ------------ ----- IPs : 2,220 ----- --------- ----- Users : 1,399 ----- ---- ----- ----- ----- ---- ----- -----",
+      "users": "---- --------- ----- VPS : 146 ----- ------------ ----- IPs : 2,220 ----- --------- ----- Users : 1,399 ----- ---- ----- ----- ----- ---- ----- ------ -- FAQ Is it really free? Yes. The"
+    }
+  }
+}
