@@ -20,6 +20,8 @@ permissions:
   actions: write
 
 concurrency:
+  # Keep the old Hax group name so migration cannot overlap an already-running
+  # Hax monitor with the new combined monitor.
   group: hax-monitor
   cancel-in-progress: false
 
@@ -71,11 +73,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          extra=()
+          args=(
+            --duration "$MONITOR_SECONDS"
+            --hax-interval "$HAX_INTERVAL_SECONDS"
+            --hax-cleanup-interval "$HAX_CLEANUP_INTERVAL_SECONDS"
+            --openworld-interval "$OPENWORLD_INTERVAL_SECONDS"
+            --state-dir .monitor-state
+            --runtime-dir .monitor-runtime
+            --summary monitor-summary.md
+          )
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            extra+=(--manual-artifact)
+            args+=(--manual-artifact)
           fi
-          python3 scripts/monitor_hub.py             --duration "$MONITOR_SECONDS"             --hax-interval "$HAX_INTERVAL_SECONDS"             --hax-cleanup-interval "$HAX_CLEANUP_INTERVAL_SECONDS"             --openworld-interval "$OPENWORLD_INTERVAL_SECONDS"             --state-dir .monitor-state             --runtime-dir .monitor-runtime             --summary monitor-summary.md             "${extra[@]}"
+          python3 scripts/monitor_hub.py "${args[@]}"
 
       - name: Upload OpenWorld Create VPS page artifact
         if: ${{ always() && github.event_name == 'workflow_dispatch' }}
@@ -122,7 +132,11 @@ jobs:
 
           (
             cd "$tmp"
-            git add hax.json openworld.json openworld-inventory.json 2>/dev/null || true
+            for file in hax.json openworld.json openworld-inventory.json; do
+              if [ -e "$file" ]; then
+                git add "$file"
+              fi
+            done
             if ! git diff --cached --quiet; then
               git commit -m "chore: update VPS monitor snapshots"
               git push origin HEAD:monitor-state
