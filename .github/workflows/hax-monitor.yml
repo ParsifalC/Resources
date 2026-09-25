@@ -1,4 +1,4 @@
-name: Hax monitor
+name: VPS monitor hub
 
 on:
   workflow_dispatch:
@@ -10,6 +10,9 @@ on:
     branches: [master]
     paths:
       - "scripts/hax_monitor.py"
+      - "scripts/openworld_monitor.py"
+      - "scripts/openworld_auth_probe.py"
+      - "scripts/monitor_hub.py"
       - ".github/workflows/hax-monitor.yml"
 
 permissions:
@@ -23,252 +26,75 @@ concurrency:
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    # GitHub-hosted jobs are capped at 6 hours. Keep 10 minutes for final
-    # persistence and hand-off instead of running into the hard limit.
+    # GitHub-hosted jobs are capped at 6 hours. Keep 10 minutes for snapshot
+    # persistence, summary/artifact upload, and hand-off.
     timeout-minutes: 350
     env:
       MONITOR_SECONDS: 20400
-      INTERVAL_SECONDS: 300
-      CLEANUP_INTERVAL_SECONDS: 60
+      HAX_INTERVAL_SECONDS: 300
+      HAX_CLEANUP_INTERVAL_SECONDS: 60
+      OPENWORLD_INTERVAL_SECONDS: 900
       FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
       FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
       FEISHU_CHAT_ID: ${{ secrets.FEISHU_CHAT_ID }}
+      OPENWORLD_SESSIONCOOKIE: ${{ secrets.OPENWORLD_SESSIONCOOKIE }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Load previous valid snapshot
-        id: previous
+      - name: Load previous valid snapshots
         shell: bash
         run: |
           set -euo pipefail
-          if git fetch origin monitor-state:refs/remotes/origin/monitor-state 2>/dev/null \
-            && git show origin/monitor-state:hax.json > previous.json 2>/dev/null; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            : > previous.json
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+          mkdir -p .monitor-state
+          if git fetch origin monitor-state:refs/remotes/origin/monitor-state 2>/dev/null; then
+            for file in hax.json openworld.json openworld-inventory.json; do
+              git show "origin/monitor-state:${file}" > ".monitor-state/${file}" 2>/dev/null || true
+            done
           fi
-
-      - name: Monitor Hax continuously
-        id: loop
-        shell: bash
-        run: |
-          set -u
-          deadline=$(( $(date +%s) + MONITOR_SECONDS ))
-          iteration=0
-          valid_checks=0
-          failed_checks=0
-          notifications=0
-
-          notify_feishu() {
-            python3 - <<'PY'
+          python3 - <<'PY'
           import json
-          import os
-          import sys
-          import urllib.parse
-          import urllib.request
-          from datetime import datetime, timezone, timedelta
           from pathlib import Path
 
-          c = json.load(open("current.json"))
-          d = json.load(open("diff.json"))
-          added = d["datacenters"].get("added", [])
-          removed = d["datacenters"].get("removed", [])
-          releases = d.get("release_candidates") or []
-
-          if releases:
-              lines = ["⚡ Hax 疑似释放可用席位", "━━━━━━━━━━━━━━━━━━", ""]
-              for item in releases:
-                  name = item.get("datacenter")
-                  before = item.get("before")
-                  after = item.get("after")
-                  released = item.get("released")
-                  source = item.get("source")
-                  lines.append(f"🟠 {name}: {before} → {after}，减少 {released} 台")
-                  lines.append(f"   信号源: {source}；建议立即手动尝试创建")
-          elif added:
-              lines = ["🚨 Hax 出现新的 Create VPS 选项", "━━━━━━━━━━━━━━━━━━", ""]
-              for name in added:
-                  lines.append(f"🟢 {name} 新出现")
-              lines.extend(["", "⚠️ 这仍不是成功库存确认，只是比长期常驻选项更强的信号。"])
-          else:
-              lines = ["📊 Hax 可用性状态变化", "━━━━━━━━━━━━━━━━━━", ""]
-
-          if removed:
-              if releases or added:
-                  lines.append("")
-              for name in removed:
-                  lines.append(f"🔴 Create VPS 选项 {name} 已消失")
-
-          stats_diff = (d.get("data_center_stats") or {}).get("servers") or {}
-          if stats_diff:
-              lines.extend(["", "📉 Data Center 在线 VPS 数变化"])
-              for name, x in stats_diff.items():
-                  before, after, delta = x["before"], x["after"], x["delta"]
-                  suffix = "" if delta is None else f" ({delta:+d})"
-                  lines.append(f"• {name}: {before} → {after}{suffix}")
-
-          if d["servers"]:
-              lines.extend(["", "📈 /server 页面统计变化（辅助）"])
-              for name, x in d["servers"].items():
-                  before, after, delta = x["before"], x["after"], x["delta"]
-                  suffix = "" if delta is None else f" ({delta:+d})"
-                  lines.append(f"• {name}: {before} → {after}{suffix}")
-
-          lines.extend(["", "🌐 当前 Create VPS 表单选项（不等于好鸡/真实库存）"])
-          if c["datacenters"]:
-              added_set = set(added)
-              for name in c["datacenters"]:
-                  lines.append(f"• {name}{' 🆕' if name in added_set else ''}")
-          else:
-              lines.append("• (none)")
-
-          stats = c.get("data_center_stats") or {}
-          stats_servers = stats.get("servers") or {}
-          if stats_servers:
-              stale = not bool(c.get("data_center_stats_fresh"))
-              suffix = "（沿用上一份有效值）" if stale else ""
-              lines.extend(["", f"🧭 Data Center Server Statistics{suffix}"])
-              for name, count in stats_servers.items():
-                  lines.append(f"• {name}: {count} VPS")
-              online_total = stats.get("online_total")
-              if online_total is not None:
-                  lines.append(f"• Online total: {online_total} VPS")
-
-          checked_at = c.get("checked_at")
-          display_time = checked_at or "unknown"
-          if checked_at:
+          for path in sorted(Path(".monitor-state").glob("*.json")):
               try:
-                  dt = datetime.fromisoformat(checked_at.replace("Z", "+00:00"))
-                  display_time = dt.astimezone(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S (UTC+8)")
-              except ValueError:
-                  pass
-
-          lines.extend([
-              "",
-              "ℹ️ 只有成功创建并实际 Online 才能确认是可用 VPS；当前监控保持只读，不会代你创建。",
-              f"🕒 检测时间：{display_time}",
-              "",
-              "🔐 登录 Hax：https://hax.co.id/login",
-          ])
-          text = "\n".join(lines)
-          Path("notification.md").write_text(text + "\n", encoding="utf-8")
-
-          app_id = os.environ.get("FEISHU_APP_ID", "").strip()
-          app_secret = os.environ.get("FEISHU_APP_SECRET", "").strip()
-          chat_id = os.environ.get("FEISHU_CHAT_ID", "").strip()
-          if not (app_id and app_secret and chat_id):
-              print("Feishu secrets are not fully configured; skipping notification.")
-              sys.exit(2)
-
-          def post_json(url, payload, headers=None):
-              body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-              request = urllib.request.Request(
-                  url,
-                  data=body,
-                  headers={"Content-Type": "application/json", **(headers or {})},
-                  method="POST",
-              )
-              with urllib.request.urlopen(request, timeout=30) as response:
-                  data = json.loads(response.read().decode("utf-8"))
-              code = data.get("code", data.get("StatusCode", 0))
-              if code not in (0, "0", None):
-                  raise RuntimeError(f"Feishu API error: code={code}, msg={data.get('msg', data.get('StatusMessage'))}")
-              return data
-
-          token_data = post_json(
-              "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
-              {"app_id": app_id, "app_secret": app_secret},
-          )
-          token = str(token_data.get("tenant_access_token") or "").strip()
-          if not token:
-              raise RuntimeError("Feishu response missing tenant_access_token")
-
-          query = urllib.parse.urlencode({"receive_id_type": "chat_id"})
-          post_json(
-              f"https://open.feishu.cn/open-apis/im/v1/messages?{query}",
-              {
-                  "receive_id": chat_id,
-                  "msg_type": "text",
-                  "content": json.dumps({"text": text}, ensure_ascii=False),
-              },
-              headers={"Authorization": f"Bearer {token}"},
-          )
-          print("Feishu notification sent successfully.")
+                  value = json.loads(path.read_text(encoding="utf-8"))
+                  print(f"Loaded {path.name}: valid JSON ({len(json.dumps(value))} bytes)")
+              except Exception as exc:
+                  print(f"Invalid cached state {path.name}: {type(exc).__name__}: {exc}")
+                  path.unlink(missing_ok=True)
           PY
-          }
 
-          while [ "$(date +%s)" -lt "$deadline" ]; do
-            iteration=$((iteration + 1))
-            echo "=== Hax check #$iteration at $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+      - name: Run monitor hub
+        id: hub
+        shell: bash
+        run: |
+          set -euo pipefail
+          extra=()
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            extra+=(--manual-artifact)
+          fi
+          python3 scripts/monitor_hub.py             --duration "$MONITOR_SECONDS"             --hax-interval "$HAX_INTERVAL_SECONDS"             --hax-cleanup-interval "$HAX_CLEANUP_INTERVAL_SECONDS"             --openworld-interval "$OPENWORLD_INTERVAL_SECONDS"             --state-dir .monitor-state             --runtime-dir .monitor-runtime             --summary monitor-summary.md             "${extra[@]}"
 
-            python3 scripts/hax_monitor.py \
-              --previous previous.json \
-              --output current.json \
-              --diff-output diff.json
+      - name: Upload OpenWorld Create VPS page artifact
+        if: ${{ always() && github.event_name == 'workflow_dispatch' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: openworld-createvps-page
+          path: openworld-createvps.html
+          retention-days: 1
+          if-no-files-found: warn
 
-            read -r has_errors changed initialized <<EOF
-          $(python3 - <<'PY'
-          import json
-          c = json.load(open("current.json"))
-          d = json.load(open("diff.json"))
-          print(
-              str(bool(c.get("errors"))).lower(),
-              str(bool(d.get("changed"))).lower(),
-              str(bool(d.get("initialized"))).lower(),
-          )
-          PY
-          )
-          EOF
-
-            if [ "$has_errors" = "true" ]; then
-              failed_checks=$((failed_checks + 1))
-              echo "Probe invalid; preserving previous valid snapshot and continuing."
-            else
-              valid_checks=$((valid_checks + 1))
-              if [ "$changed" = "true" ] && [ "$initialized" = "false" ]; then
-                if notify_feishu; then
-                  notifications=$((notifications + 1))
-                else
-                  echo "Feishu notification failed; monitor will continue." >&2
-                fi
-              fi
-              cp current.json previous.json
-            fi
-
-            # Hax documents daily expiry cleanup at 17:00 UTC. Poll faster around
-            # that window because a released seat can disappear again quickly.
-            sleep_seconds="$INTERVAL_SECONDS"
-            hour="$(date -u +%H)"
-            minute="$(date -u +%M)"
-            minutes_since_midnight=$((10#$hour * 60 + 10#$minute))
-            if (( minutes_since_midnight >= 1015 && minutes_since_midnight <= 1040 )); then
-              sleep_seconds="$CLEANUP_INTERVAL_SECONDS"
-              echo "Cleanup window: using ${sleep_seconds}s polling interval."
-            fi
-
-            now=$(date +%s)
-            next=$((now + sleep_seconds))
-            if [ "$next" -ge "$deadline" ]; then
-              break
-            fi
-            sleep "$sleep_seconds"
-          done
-
-          echo "iterations=$iteration" >> "$GITHUB_OUTPUT"
-          echo "valid_checks=$valid_checks" >> "$GITHUB_OUTPUT"
-          echo "failed_checks=$failed_checks" >> "$GITHUB_OUTPUT"
-          echo "notifications=$notifications" >> "$GITHUB_OUTPUT"
-
-      - name: Persist final valid snapshot
+      - name: Persist final valid snapshots
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          if [ ! -s previous.json ]; then
-            echo "No valid snapshot available; nothing to persist."
+          shopt -s nullglob
+          snapshots=(.monitor-state/*.json)
+          if [ "${#snapshots[@]}" -eq 0 ]; then
+            echo "No valid snapshots available; nothing to persist."
             exit 0
           fi
 
@@ -290,13 +116,18 @@ jobs:
             )
           fi
 
-          cp previous.json "$tmp/hax.json"
+          for source in "${snapshots[@]}"; do
+            cp "$source" "$tmp/$(basename "$source")"
+          done
+
           (
             cd "$tmp"
-            git add hax.json
+            git add hax.json openworld.json openworld-inventory.json 2>/dev/null || true
             if ! git diff --cached --quiet; then
-              git commit -m "chore: update Hax monitor snapshot"
+              git commit -m "chore: update VPS monitor snapshots"
               git push origin HEAD:monitor-state
+            else
+              echo "Snapshot content unchanged; no commit required."
             fi
           )
 
@@ -304,17 +135,15 @@ jobs:
         if: always()
         shell: bash
         run: |
-          {
-            echo "## Hax long-lived monitor"
-            echo
-            echo "- Iterations: \`${{ steps.loop.outputs.iterations || 'unknown' }}\`"
-            echo "- Valid checks: \`${{ steps.loop.outputs.valid_checks || 'unknown' }}\`"
-            echo "- Failed checks: \`${{ steps.loop.outputs.failed_checks || 'unknown' }}\`"
-            echo "- Feishu notifications: \`${{ steps.loop.outputs.notifications || 'unknown' }}\`"
-            echo "- Normal interval: \`${INTERVAL_SECONDS}s\`"
-            echo "- Cleanup-window interval: \`${CLEANUP_INTERVAL_SECONDS}s\` (16:55-17:20 UTC)"
-            echo "- Target runtime: \`${MONITOR_SECONDS}s\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -s monitor-summary.md ]; then
+            cat monitor-summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "## VPS monitor hub"
+              echo
+              echo "Monitor process did not produce a summary."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Hand off to next run
         if: ${{ success() || cancelled() }}
@@ -323,5 +152,5 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "Dispatching the next Hax monitor run."
+          echo "Dispatching the next VPS monitor hub run."
           gh workflow run hax-monitor.yml --repo "$GITHUB_REPOSITORY" --ref master
