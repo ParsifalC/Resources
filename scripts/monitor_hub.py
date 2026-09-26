@@ -321,18 +321,35 @@ class OpenWorldTask(MonitorTask):
 
         rc = run_command(command)
         current = load_json(auth_probe)
+        previous = load_json(self.inventory_state)
         state = current.get("inventory_state", "UNKNOWN")
         valid = current.get("auth_state") == "AUTHENTICATED" and state in {"AVAILABLE", "OUT_OF_STOCK"}
         if not valid:
+            notified = False
             if rc == 2:
                 print("[openworld/inventory] session expired or no longer reaches authenticated /createvps.", file=sys.stderr)
+                should_notify = (
+                    previous.get("auth_state") != "UNAUTHENTICATED"
+                    or not previous.get("auth_alerted")
+                )
+                if should_notify:
+                    notified = send_feishu(self._session_expired_notification(current))
+                previous["auth_state"] = "UNAUTHENTICATED"
+                previous["auth_checked_at"] = current.get("checked_at")
+                previous["auth_alerted"] = notified or bool(previous.get("auth_alerted"))
+                write_json(self.inventory_state, previous)
             else:
                 print(
                     f"[openworld/inventory] invalid probe; preserving snapshot. rc={rc} "
                     f"auth={current.get('auth_state')} inventory={state}",
                     file=sys.stderr,
                 )
-            return False, {"rc": rc, "auth": current.get("auth_state"), "state": state}
+            return False, {
+                "rc": rc,
+                "auth": current.get("auth_state"),
+                "state": state,
+                "notified": notified,
+            }
 
         inventory = current.get("inventory") or {}
         snapshot = {
@@ -340,8 +357,10 @@ class OpenWorldTask(MonitorTask):
             "stock": inventory.get("free_stock_total"),
             "free_plans": inventory.get("free_plans") or [],
             "source": current.get("source"),
+            "auth_state": "AUTHENTICATED",
+            "auth_checked_at": current.get("checked_at"),
+            "auth_alerted": False,
         }
-        previous = load_json(self.inventory_state)
         previous_core = {key: previous.get(key) for key in ("status", "stock", "free_plans", "source")}
         initialized = not bool(previous.get("status"))
         changed = not initialized and snapshot != previous_core
@@ -378,6 +397,27 @@ class OpenWorldTask(MonitorTask):
             ]
         )
         return "\n".join(lines)
+
+    @staticmethod
+    def _session_expired_notification(current: dict[str, Any]) -> str:
+        return "\n".join(
+            [
+                "⚠️ OpenWorld 登录 Cookie 已过期",
+                "━━━━━━━━━━━━━━━━━━",
+                "",
+                "❌ /createvps 已无法维持登录态（auth=UNAUTHENTICATED）",
+                f"🕒 检测时间：{display_time(current.get('checked_at'))}",
+                "",
+                "请重新登录 OpenWorld，复制新的 sessioncookie 值后执行：",
+                "",
+                "gh secret set OPENWORLD_SESSIONCOOKIE --repo ParsifalC/Resources --body '新的 sessioncookie 值'",
+                "",
+                "如果新的 sessioncookie 已在 macOS 剪贴板，也可以执行：",
+                "pbpaste | gh secret set OPENWORLD_SESSIONCOOKIE --repo ParsifalC/Resources",
+                "",
+                "ℹ️ 只需要 sessioncookie 的值，不要带 sessioncookie= 前缀。",
+            ]
+        )
 
     @staticmethod
     def _inventory_notification(current: dict[str, Any]) -> str:
