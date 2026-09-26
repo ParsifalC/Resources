@@ -361,9 +361,11 @@ class OpenWorldTask(MonitorTask):
             "auth_checked_at": current.get("checked_at"),
             "auth_alerted": False,
         }
-        previous_core = {key: previous.get(key) for key in ("status", "stock", "free_plans", "source")}
+        inventory_keys = ("status", "stock", "free_plans", "source")
+        previous_core = {key: previous.get(key) for key in inventory_keys}
+        snapshot_core = {key: snapshot.get(key) for key in inventory_keys}
         initialized = not bool(previous.get("status"))
-        changed = not initialized and snapshot != previous_core
+        changed = not initialized and snapshot_core != previous_core
         restocked = not initialized and state == "AVAILABLE" and previous.get("status") == "OUT_OF_STOCK"
         notified = False
         if restocked:
