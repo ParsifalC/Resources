@@ -1,11 +1,11 @@
 {
-  "status": "AVAILABLE",
-  "stock": 1,
+  "status": "OUT_OF_STOCK",
+  "stock": 0,
   "free_plans": [
     {
       "name": "Free",
       "price": 0.0,
-      "stock": 1,
+      "stock": 0,
       "active": true,
       "node_type": "proxmox",
       "cpu": 1,
@@ -13,21 +13,21 @@
       "disk": 5120,
       "netmbps": 50,
       "bandwidth_gb": 50,
-      "button_disabled": false,
+      "button_disabled": true,
       "locations": [
         {
           "name": "Honduras",
           "code": "hn-1",
           "available": true,
           "status_text": "Available",
-          "vps_count": 142
+          "vps_count": 143
         }
       ]
     }
   ],
   "source": "https://openworld.eu.org/createvps",
   "auth_state": "AUTHENTICATED",
-  "auth_checked_at": "2026-09-26T20:05:34.446634Z",
+  "auth_checked_at": "2026-09-27T01:45:38.102134Z",
   "auth_alerted": false,
-  "checked_at": "2026-09-26T20:05:34.446634Z"
+  "checked_at": "2026-09-27T01:45:38.102134Z"
 }
