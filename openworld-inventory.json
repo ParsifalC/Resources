@@ -1,11 +1,11 @@
 {
   "status": "AVAILABLE",
-  "stock": 1,
+  "stock": 2,
   "free_plans": [
     {
       "name": "Free",
       "price": 0.0,
-      "stock": 1,
+      "stock": 2,
       "active": true,
       "node_type": "proxmox",
       "cpu": 1,
@@ -20,14 +20,14 @@
           "code": "hn-1",
           "available": true,
           "status_text": "Available",
-          "vps_count": 142
+          "vps_count": 141
         }
       ]
     }
   ],
   "source": "https://openworld.eu.org/createvps",
   "auth_state": "AUTHENTICATED",
-  "auth_checked_at": "2026-10-02T00:50:01.686288Z",
+  "auth_checked_at": "2026-10-02T06:30:18.141647Z",
   "auth_alerted": false,
-  "checked_at": "2026-10-02T00:50:01.686288Z"
+  "checked_at": "2026-10-02T06:30:18.141647Z"
 }
