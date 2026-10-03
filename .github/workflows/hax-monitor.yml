@@ -21,7 +21,9 @@ concurrency:
   # Keep the old Hax group name so migration cannot overlap an already-running
   # Hax monitor with the new combined monitor.
   group: hax-monitor
-  cancel-in-progress: false
+  # Code pushes replace the currently running hub so provider changes take effect immediately.
+  # Scheduled/self-dispatched continuity still queues instead of cancelling a healthy run.
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
   monitor:
