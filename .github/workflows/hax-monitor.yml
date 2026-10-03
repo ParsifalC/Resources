@@ -10,8 +10,6 @@ on:
     branches: [master]
     paths:
       - "scripts/hax_monitor.py"
-      - "scripts/openworld_monitor.py"
-      - "scripts/openworld_auth_probe.py"
       - "scripts/monitor_hub.py"
       - ".github/workflows/hax-monitor.yml"
 
@@ -35,23 +33,21 @@ jobs:
       MONITOR_SECONDS: 20400
       HAX_INTERVAL_SECONDS: 300
       HAX_CLEANUP_INTERVAL_SECONDS: 60
-      OPENWORLD_INTERVAL_SECONDS: 900
       FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
       FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
       FEISHU_CHAT_ID: ${{ secrets.FEISHU_CHAT_ID }}
-      OPENWORLD_SESSIONCOOKIE: ${{ secrets.OPENWORLD_SESSIONCOOKIE }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Load previous valid snapshots
+      - name: Load previous valid Hax snapshot
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p .monitor-state
           if git fetch origin monitor-state:refs/remotes/origin/monitor-state 2>/dev/null; then
-            for file in hax.json openworld.json openworld-inventory.json; do
+            for file in hax.json; do
               git show "origin/monitor-state:${file}" > ".monitor-state/${file}" 2>/dev/null || true
             done
           fi
@@ -77,24 +73,12 @@ jobs:
             --duration "$MONITOR_SECONDS"
             --hax-interval "$HAX_INTERVAL_SECONDS"
             --hax-cleanup-interval "$HAX_CLEANUP_INTERVAL_SECONDS"
-            --openworld-interval "$OPENWORLD_INTERVAL_SECONDS"
             --state-dir .monitor-state
             --runtime-dir .monitor-runtime
             --summary monitor-summary.md
           )
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            args+=(--manual-artifact)
-          fi
           python3 scripts/monitor_hub.py "${args[@]}"
 
-      - name: Upload OpenWorld Create VPS page artifact
-        if: ${{ always() && github.event_name == 'workflow_dispatch' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: openworld-createvps-page
-          path: openworld-createvps.html
-          retention-days: 1
-          if-no-files-found: warn
 
       - name: Persist final valid snapshots
         if: always()
@@ -132,7 +116,7 @@ jobs:
 
           (
             cd "$tmp"
-            for file in hax.json openworld.json openworld-inventory.json; do
+            for file in hax.json; do
               if [ -e "$file" ]; then
                 git add "$file"
               fi
