@@ -258,195 +258,6 @@ class HaxTask(MonitorTask):
         return "\n".join(lines)
 
 
-class OpenWorldTask(MonitorTask):
-    name = "openworld"
-
-    def __init__(
-        self,
-        state_dir: Path,
-        runtime_dir: Path,
-        interval_seconds: int,
-        *,
-        save_html_once: bool,
-    ):
-        self.public_state = state_dir / "openworld.json"
-        self.inventory_state = state_dir / "openworld-inventory.json"
-        self.runtime_dir = runtime_dir / self.name
-        self.runtime_dir.mkdir(parents=True, exist_ok=True)
-        self.interval_seconds = interval_seconds
-        self.save_html_once = save_html_once
-
-    def run_once(self) -> RunResult:
-        public_valid, public_details = self._run_public()
-        inventory_valid, inventory_details = self._run_inventory()
-        return RunResult(
-            public_valid and inventory_valid,
-            {"public": public_details, "inventory": inventory_details},
-        )
-
-    def _run_public(self) -> tuple[bool, dict[str, Any]]:
-        current = self.runtime_dir / "current.json"
-        diff_path = self.runtime_dir / "diff.json"
-        rc = run_command(
-            [
-                sys.executable,
-                "scripts/openworld_monitor.py",
-                "--previous",
-                str(self.public_state),
-                "--output",
-                str(current),
-                "--diff-output",
-                str(diff_path),
-            ]
-        )
-        snapshot = load_json(current)
-        diff = load_json(diff_path)
-        valid = rc == 0 and snapshot.get("status") == "OK" and not snapshot.get("errors")
-        notified = False
-        if not valid:
-            print(f"[openworld/public] invalid probe; preserving snapshot. rc={rc}", file=sys.stderr)
-            return False, {"rc": rc}
-
-        if diff.get("changed") and not diff.get("initialized"):
-            notified = send_feishu(self._public_notification(snapshot, diff))
-        copy_atomic(current, self.public_state)
-        return True, {"changed": bool(diff.get("changed")), "notified": notified}
-
-    def _run_inventory(self) -> tuple[bool, dict[str, Any]]:
-        auth_probe = self.runtime_dir / "auth_probe.json"
-        command = [sys.executable, "scripts/openworld_auth_probe.py", str(auth_probe)]
-        if self.save_html_once:
-            command.extend(["--html-output", str(ROOT / "openworld-createvps.html")])
-            self.save_html_once = False
-
-        rc = run_command(command)
-        current = load_json(auth_probe)
-        previous = load_json(self.inventory_state)
-        state = current.get("inventory_state", "UNKNOWN")
-        valid = current.get("auth_state") == "AUTHENTICATED" and state in {"AVAILABLE", "OUT_OF_STOCK"}
-        if not valid:
-            notified = False
-            if rc == 2:
-                print("[openworld/inventory] session expired or no longer reaches authenticated /createvps.", file=sys.stderr)
-                should_notify = (
-                    previous.get("auth_state") != "UNAUTHENTICATED"
-                    or not previous.get("auth_alerted")
-                )
-                if should_notify:
-                    notified = send_feishu(self._session_expired_notification(current))
-                previous["auth_state"] = "UNAUTHENTICATED"
-                previous["auth_checked_at"] = current.get("checked_at")
-                previous["auth_alerted"] = notified or bool(previous.get("auth_alerted"))
-                write_json(self.inventory_state, previous)
-            else:
-                print(
-                    f"[openworld/inventory] invalid probe; preserving snapshot. rc={rc} "
-                    f"auth={current.get('auth_state')} inventory={state}",
-                    file=sys.stderr,
-                )
-            return False, {
-                "rc": rc,
-                "auth": current.get("auth_state"),
-                "state": state,
-                "notified": notified,
-            }
-
-        inventory = current.get("inventory") or {}
-        snapshot = {
-            "status": state,
-            "stock": inventory.get("free_stock_total"),
-            "free_plans": inventory.get("free_plans") or [],
-            "source": current.get("source"),
-            "auth_state": "AUTHENTICATED",
-            "auth_checked_at": current.get("checked_at"),
-            "auth_alerted": False,
-        }
-        inventory_keys = ("status", "stock", "free_plans", "source")
-        previous_core = {key: previous.get(key) for key in inventory_keys}
-        snapshot_core = {key: snapshot.get(key) for key in inventory_keys}
-        initialized = not bool(previous.get("status"))
-        changed = not initialized and snapshot_core != previous_core
-        restocked = not initialized and state == "AVAILABLE" and previous.get("status") == "OUT_OF_STOCK"
-        notified = False
-        if restocked:
-            notified = send_feishu(self._inventory_notification(current))
-        snapshot["checked_at"] = current.get("checked_at")
-        write_json(self.inventory_state, snapshot)
-        return True, {
-            "changed": changed,
-            "restocked": restocked,
-            "notified": notified,
-            "state": state,
-            "stock": snapshot.get("stock"),
-        }
-
-    @staticmethod
-    def _public_notification(current: dict[str, Any], diff: dict[str, Any]) -> str:
-        labels = {"nodes": "Nodes", "vps": "VPS", "ips": "IPs"}
-        lines = ["📡 OpenWorld 公开容量数量变化", "━━━━━━━━━━━━━━━━━━", ""]
-        for key, change in (diff.get("counters") or {}).items():
-            delta = change.get("delta")
-            suffix = "" if delta is None else f" ({delta:+d})"
-            lines.append(
-                f"• {labels.get(key, key)}: {change.get('before')} → {change.get('after')}{suffix}"
-            )
-        lines.extend(
-            [
-                "",
-                "⚠️ 这是公开数量变化；Free VPS 是否有货以登录态库存探针为准。",
-                f"🕒 检测时间：{display_time(current.get('checked_at'))}",
-                "🌐 https://openworld.eu.org/",
-            ]
-        )
-        return "\n".join(lines)
-
-    @staticmethod
-    def _session_expired_notification(current: dict[str, Any]) -> str:
-        return "\n".join(
-            [
-                "⚠️ OpenWorld 登录 Cookie 已过期",
-                "━━━━━━━━━━━━━━━━━━",
-                "",
-                "❌ /createvps 已无法维持登录态（auth=UNAUTHENTICATED）",
-                f"🕒 检测时间：{display_time(current.get('checked_at'))}",
-                "",
-                "请重新登录 OpenWorld，复制新的 sessioncookie 值后执行：",
-                "",
-                "gh secret set OPENWORLD_SESSIONCOOKIE --repo ParsifalC/Resources --body '新的 sessioncookie 值'",
-                "",
-                "如果新的 sessioncookie 已在 macOS 剪贴板，也可以执行：",
-                "pbpaste | gh secret set OPENWORLD_SESSIONCOOKIE --repo ParsifalC/Resources",
-                "",
-                "ℹ️ 只需要 sessioncookie 的值，不要带 sessioncookie= 前缀。",
-            ]
-        )
-
-    @staticmethod
-    def _inventory_notification(current: dict[str, Any]) -> str:
-        inventory = current.get("inventory") or {}
-        stock = inventory.get("free_stock_total")
-        locations: list[str] = []
-        for plan in inventory.get("free_plans") or []:
-            for location in plan.get("locations") or []:
-                if location.get("available"):
-                    name = location.get("name") or location.get("code") or "unknown"
-                    if name not in locations:
-                        locations.append(name)
-        return "\n".join(
-            [
-                "🚀 OpenWorld Free VPS 补货",
-                "━━━━━━━━━━━━━━━━━━",
-                "",
-                "✅ 当前状态：AVAILABLE",
-                f"📦 Free 库存：{stock if stock is not None else 'unknown'}",
-                f"🌍 可用地点：{', '.join(locations) if locations else '未标明'}",
-                "",
-                "🔗 https://openworld.eu.org/createvps",
-                "",
-                "该结果来自登录态 /createvps 页面中的结构化 Free plan stock；监控仅 GET，不提交创建请求。",
-            ]
-        )
-
 
 @dataclass
 class TaskStats:
@@ -464,12 +275,6 @@ def build_tasks(args: argparse.Namespace) -> list[MonitorTask]:
             args.runtime_dir,
             args.hax_interval,
             args.hax_cleanup_interval,
-        ),
-        OpenWorldTask(
-            args.state_dir,
-            args.runtime_dir,
-            args.openworld_interval,
-            save_html_once=args.manual_artifact,
         ),
     ]
 
@@ -541,7 +346,6 @@ def write_summary(
     duration_seconds: int,
     hax_interval: int,
     hax_cleanup_interval: int,
-    openworld_interval: int,
 ) -> None:
     lines = [
         "## VPS monitor hub",
@@ -550,8 +354,6 @@ def write_summary(
         f"- Target runtime: `{duration_seconds}s`",
         f"- Hax interval: `{hax_interval}s`",
         f"- Hax cleanup-window interval: `{hax_cleanup_interval}s` (16:55-17:20 UTC)",
-        f"- OpenWorld interval: `{openworld_interval}s`",
-        "- OpenWorld Create VPS POST/submission: `none`",
         "",
         "### Provider results",
     ]
@@ -581,22 +383,19 @@ def write_github_output(stats: dict[str, TaskStats]) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run Hax/OpenWorld monitors inside one long-lived process")
+    parser = argparse.ArgumentParser(description="Run long-lived VPS availability monitors")
     parser.add_argument("--duration", type=int, default=20_400)
     parser.add_argument("--hax-interval", type=int, default=300)
     parser.add_argument("--hax-cleanup-interval", type=int, default=60)
-    parser.add_argument("--openworld-interval", type=int, default=900)
     parser.add_argument("--state-dir", type=Path, default=Path(".monitor-state"))
     parser.add_argument("--runtime-dir", type=Path, default=Path(".monitor-runtime"))
     parser.add_argument("--summary", type=Path, default=Path("monitor-summary.md"))
-    parser.add_argument("--manual-artifact", action="store_true")
     args = parser.parse_args()
 
     for value, label in [
         (args.duration, "duration"),
         (args.hax_interval, "hax interval"),
         (args.hax_cleanup_interval, "hax cleanup interval"),
-        (args.openworld_interval, "OpenWorld interval"),
     ]:
         if value <= 0:
             parser.error(f"{label} must be > 0")
@@ -612,7 +411,6 @@ def main() -> int:
         duration_seconds=args.duration,
         hax_interval=args.hax_interval,
         hax_cleanup_interval=args.hax_cleanup_interval,
-        openworld_interval=args.openworld_interval,
     )
     write_github_output(stats)
     return 0
