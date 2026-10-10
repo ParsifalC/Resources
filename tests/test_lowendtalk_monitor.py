@@ -2,10 +2,12 @@
 import sys
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from lowendtalk_monitor import check, parse_thread, classify_reply
-from monitor_hub import format_lowendtalk_notification
+from monitor_hub import format_lowendtalk_notification, LowEndTalkTask
 
 
 def html(page, comments, pages=()):
@@ -22,6 +24,18 @@ def html(page, comments, pages=()):
 
 
 class LowEndTalkMonitorTests(unittest.TestCase):
+    def test_three_minute_polling_with_jitter_and_failure_backoff(self):
+        with TemporaryDirectory() as tmp:
+            task = LowEndTalkTask(Path(tmp) / "state", Path(tmp) / "runtime", 180)
+            with patch("monitor_hub.random.randint", return_value=0):
+                self.assertEqual(task.next_interval_seconds(), 180)
+                task.failures = 1
+                self.assertEqual(task.next_interval_seconds(), 360)
+            task.failures = 0
+            with patch("monitor_hub.random.randint", return_value=30):
+                self.assertEqual(task.next_interval_seconds(), 210)
+
+
     def test_parse_author_text_ids_and_pagination(self):
         p = parse_thread(html(1, [(10, "dustinc", "Batch 2!"), (11, "user", "Hi")], [2, 3]), page=1)
         self.assertEqual(p.pages, {1, 2, 3})
