@@ -318,7 +318,7 @@ class LowEndTalkTask(MonitorTask):
         self.failures = 0
 
     def next_interval_seconds(self) -> int:
-        # 5-5.5 minutes by default; double after each failure (maximum 2 hours).
+        # 3-3.5 minutes by default; exponential backoff after failed checks.
         return min(7200, self.interval_seconds * 2 ** min(self.failures, 4)) + random.randint(0, 30)
 
     def run_once(self) -> RunResult:
@@ -492,7 +492,7 @@ def main() -> int:
     parser.add_argument("--duration", type=int, default=20_400)
     parser.add_argument("--hax-interval", type=int, default=300)
     parser.add_argument("--hax-cleanup-interval", type=int, default=60)
-    parser.add_argument("--let-interval", type=int, default=300)
+    parser.add_argument("--let-interval", type=int, default=180)
     parser.add_argument("--state-dir", type=Path, default=Path(".monitor-state"))
     parser.add_argument("--runtime-dir", type=Path, default=Path(".monitor-runtime"))
     parser.add_argument("--summary", type=Path, default=Path("monitor-summary.md"))

@@ -22,9 +22,9 @@ concurrency:
   # Keep the old Hax group name so migration cannot overlap an already-running
   # Hax monitor with the new combined monitor.
   group: hax-monitor
-  # Code pushes replace the currently running hub so provider changes take effect immediately.
-  # Scheduled/self-dispatched continuity still queues instead of cancelling a healthy run.
-  cancel-in-progress: ${{ github.event_name == 'push' }}
+  # Never cancel the active hub on config pushes: its in-memory LET cursor is
+  # persisted only at the end of a run. Queue the new config for safe hand-off.
+  cancel-in-progress: false
 
 jobs:
   monitor:
@@ -35,7 +35,7 @@ jobs:
     env:
       MONITOR_SECONDS: 20400
       HAX_INTERVAL_SECONDS: 300
-      LET_INTERVAL_SECONDS: 300
+      LET_INTERVAL_SECONDS: 180
       HAX_CLEANUP_INTERVAL_SECONDS: 60
       FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
       FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
