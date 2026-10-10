@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-time anonymous read of current latest dustinc replies, no credentials or retries."""
+"""One-time anonymous read of latest replies, no credentials or retries."""
 import sys
 import urllib.request
 from pathlib import Path
@@ -45,10 +45,9 @@ try:
                     data[row['id']]=row
     rows=sorted(data.values(),key=lambda x:x['id'])
     print('LATEST_COMMENT_ID', rows[-1]['id'] if rows else None,flush=True)
-    replies=[r for r in rows if r['author']=='dustinc']
-    print('DUSTINC_COUNT',len(replies),flush=True)
-    for item in replies[-18:]:
-        print('DUSTINC',item['id'],item.get('created_at'),repr(item['text'][:1400]),flush=True)
+    print('LATEST_FIVE_ALL_REPLIES',flush=True)
+    for item in rows[-5:]:
+        print('COMMENT',item['id'],item['author'],item.get('created_at'),repr(item['text'][:2500]),flush=True)
 except Exception as exc:
     print('FETCH_ERROR',type(exc).__name__,str(exc),flush=True)
     raise
