@@ -45,8 +45,8 @@ try:
                 for row in p.comments:
                     data[row['id']]=row
     rows=sorted(data.values(),key=lambda x:x['id'])
-    han=re.compile(r'[\\u3400-\\u9fff]')
-    for page_label,subset in [('latest_page', [r for r in rows if r['id'] >= 4879944]),('all_loaded',rows)]:
+    han=re.compile('[一-龥]')
+    for page_label,subset in [('latest_page', [r for r in rows if r['id'] >= 4879819]),('all_loaded',rows)]:
         chinese=[r for r in subset if han.search(r.get('own_text') or r.get('text',''))]
         print('LANG_STATS',page_label,'total',len(subset),'chinese',len(chinese),flush=True)
         for r in chinese[:25]:
