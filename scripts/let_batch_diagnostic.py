@@ -33,7 +33,7 @@ def fetch(page):
     return p.comments
 
 records = {}
-for page in range(10, 16):
+for page in range(11, 13):
     try:
         comments = fetch(page)
         print('PAGE', page, 'count', len(comments), 'first', comments[0] if comments else None, flush=True)
@@ -41,7 +41,7 @@ for page in range(10, 16):
             records[r['id']] = r
     except Exception as exc:
         print('PAGE_ERROR', page, type(exc).__name__, str(exc), flush=True)
-    if page != 15:
+    if page != 12:
         time.sleep(3)
 rows = [records[k] for k in sorted(records)]
 print('ROWS',len(rows),'START',rows[0]['id'] if rows else None,'END',rows[-1]['id'] if rows else None)
@@ -70,3 +70,12 @@ print('ALL_ANNOUNCEMENTS_OR_CLOSING')
 for r in rows:
     if r['author']=='dustinc' and any(x in r.get('text','').lower() for x in ('giveaway!', 'went quick', 'winners have been dm', 'winners have been dm\'d', 'latest giveaway winners')):
         print('SIGNAL',r['id'],r.get('time'),repr(r.get('text','')[:180]))
+
+print('ALL_DUSTINC_ON_PAGES_11_12')
+for r in rows:
+    if r['author']=='dustinc':
+        print('DUSTINC',r['id'],r.get('time'),repr(r.get('text','')[:400]))
+print('LAST_20_ROWS_PAGE_11_AND_START_PAGE_12')
+for r in rows:
+    if r.get('time','')>='2026-10-09T17:40' and r.get('time','')<'2026-10-09T18:25':
+        print('NEAR',r['id'],r['author'],r.get('time'),repr(r.get('text','')[:250]))
