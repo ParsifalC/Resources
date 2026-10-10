@@ -14,6 +14,7 @@ import argparse
 import concurrent.futures
 import json
 import os
+import random
 import shutil
 import subprocess
 import sys
@@ -259,6 +260,72 @@ class HaxTask(MonitorTask):
 
 
 
+
+class LowEndTalkTask(MonitorTask):
+    """Low-request-volume incremental LET giveaway watcher."""
+
+    name = "lowendtalk"
+
+    def __init__(self, state_dir: Path, runtime_dir: Path, interval_seconds: int):
+        self.state_path = state_dir / "lowendtalk.json"
+        self.runtime_dir = runtime_dir / self.name
+        self.runtime_dir.mkdir(parents=True, exist_ok=True)
+        self.interval_seconds = interval_seconds
+        self.failures = 0
+
+    def next_interval_seconds(self) -> int:
+        # 10-13 minutes by default; double after each failure (maximum 2 hours).
+        return min(7200, self.interval_seconds * 2 ** min(self.failures, 4)) + random.randint(0, 180)
+
+    def run_once(self) -> RunResult:
+        current = self.runtime_dir / "current.json"
+        events_file = self.runtime_dir / "events.json"
+        # Stale files must not cause a false positive after a failed subprocess.
+        current.unlink(missing_ok=True)
+        events_file.unlink(missing_ok=True)
+        rc = run_command([
+            sys.executable, "scripts/lowendtalk_monitor.py",
+            "--previous", str(self.state_path),
+            "--output", str(current),
+            "--events", str(events_file),
+        ])
+        snapshot = load_json(current)
+        result = load_json(events_file)
+        valid = (rc == 0 and isinstance(snapshot.get("last_comment_id"), int)
+                 and isinstance(snapshot.get("last_page"), int)
+                 and isinstance(result.get("events"), list)
+                 and isinstance(result.get("initialized"), bool))
+        if not valid:
+            self.failures += 1
+            print(f"[lowendtalk] probe invalid (rc={rc}); preserving checkpoint; "
+                  f"consecutive failures={self.failures}", file=sys.stderr)
+            return RunResult(False, {"rc": rc, "failures": self.failures})
+
+        items = result["events"]
+        notified = False
+        if items:
+            lines = [f"🚨 LowEndTalk: dustinc 新增 {len(items)} 条回复",
+                     "RackNerd × AdminBolt 免费 VPS 活动", ""]
+            for item in items[:8]:
+                excerpt = " ".join(str(item.get("text") or "").split())[:600]
+                lines.extend([f"📝 {excerpt or '(仅图片/无文本)'}",
+                              f"🔗 {item['url']}", ""])
+            if len(items) > 8:
+                lines.append(f"还有 {len(items) - 8} 条，请打开活动帖查看。")
+            lines.append("活动：https://lowendtalk.com/discussion/221872")
+            notified = send_feishu("\n".join(lines))
+            if not notified:
+                self.failures += 1
+                return RunResult(False, {"events": len(items), "notification_failed": True,
+                                         "failures": self.failures})
+
+        copy_atomic(current, self.state_path)
+        self.failures = 0
+        return RunResult(True, {"changed": bool(items), "events": len(items),
+                                "initialized": result["initialized"], "notified": notified,
+                                "last_page": snapshot["last_page"]})
+
+
 @dataclass
 class TaskStats:
     iterations: int = 0
@@ -270,6 +337,7 @@ class TaskStats:
 
 def build_tasks(args: argparse.Namespace) -> list[MonitorTask]:
     return [
+        LowEndTalkTask(args.state_dir, args.runtime_dir, args.let_interval),
         HaxTask(
             args.state_dir,
             args.runtime_dir,
@@ -346,6 +414,7 @@ def write_summary(
     duration_seconds: int,
     hax_interval: int,
     hax_cleanup_interval: int,
+    let_interval: int,
 ) -> None:
     lines = [
         "## VPS monitor hub",
@@ -353,6 +422,7 @@ def write_summary(
         "- Scheduler: `one long-lived Actions job`",
         f"- Target runtime: `{duration_seconds}s`",
         f"- Hax interval: `{hax_interval}s`",
+        f"- LowEndTalk interval: `{let_interval}s` + 0-180s jitter (failure backoff)",
         f"- Hax cleanup-window interval: `{hax_cleanup_interval}s` (16:55-17:20 UTC)",
         "",
         "### Provider results",
@@ -387,6 +457,7 @@ def main() -> int:
     parser.add_argument("--duration", type=int, default=20_400)
     parser.add_argument("--hax-interval", type=int, default=300)
     parser.add_argument("--hax-cleanup-interval", type=int, default=60)
+    parser.add_argument("--let-interval", type=int, default=600)
     parser.add_argument("--state-dir", type=Path, default=Path(".monitor-state"))
     parser.add_argument("--runtime-dir", type=Path, default=Path(".monitor-runtime"))
     parser.add_argument("--summary", type=Path, default=Path("monitor-summary.md"))
@@ -396,6 +467,7 @@ def main() -> int:
         (args.duration, "duration"),
         (args.hax_interval, "hax interval"),
         (args.hax_cleanup_interval, "hax cleanup interval"),
+        (args.let_interval, "LET interval"),
     ]:
         if value <= 0:
             parser.error(f"{label} must be > 0")
@@ -411,6 +483,7 @@ def main() -> int:
         duration_seconds=args.duration,
         hax_interval=args.hax_interval,
         hax_cleanup_interval=args.hax_cleanup_interval,
+        let_interval=args.let_interval,
     )
     write_github_output(stats)
     return 0
