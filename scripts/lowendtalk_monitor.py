@@ -57,22 +57,34 @@ class ThreadParser(HTMLParser):
                 comment_id = int(raw_id)
 
         if self.comment is None and comment_id is not None:
-            self.comment = {"id": comment_id, "author": "", "text": ""}
+            self.comment = {"id": comment_id, "author": "", "text": "", "own_text": ""}
             self.comment_level = len(self.stack) + 1
         if self.comment is not None and tag == "a" and not self._in_message():
             match = PROFILE_RE.search(a.get("href") or "")
             if match and not self.comment["author"]:
                 self.comment["author"] = urllib.parse.unquote(match.group(1)).casefold()
 
+        if self.comment is not None and tag == "time" and not self._in_message():
+            if a.get("datetime"):
+                self.comment["created_at"] = a["datetime"]
         if tag not in VOID:
-            self.stack.append((tag, "Message" in class_names or "userContent" in class_names))
+            is_quote = tag == "blockquote" or any(
+                part.casefold() in {"quote", "userquote", "quotetext", "quoteauthor", "blockquote"}
+                for part in class_names
+            )
+            self.stack.append((tag, "Message" in class_names or "userContent" in class_names, is_quote))
 
     def _in_message(self):
-        return any(flag for _, flag in self.stack[self.comment_level:])
+        return any(entry[1] for entry in self.stack[self.comment_level:])
+
+    def _in_quote(self):
+        return any(entry[2] for entry in self.stack[self.comment_level:])
 
     def handle_data(self, value):
         if self.comment is not None and self._in_message():
             self.comment["text"] += value
+            if not self._in_quote():
+                self.comment["own_text"] += value
 
     def handle_endtag(self, tag):
         tag = tag.lower()
@@ -82,6 +94,7 @@ class ThreadParser(HTMLParser):
                 break
         if self.comment is not None and len(self.stack) < self.comment_level:
             self.comment["text"] = " ".join(self.comment["text"].split())
+            self.comment["own_text"] = " ".join(self.comment["own_text"].split())
             self.comments.append(self.comment)
             self.comment = None
             self.comment_level = 0
@@ -119,6 +132,44 @@ def fetch_page(page: int) -> ThreadParser:
     except urllib.error.HTTPError as exc:
         raise RuntimeError(f"HTTP {exc.code}; no immediate retry (respect site restrictions)") from exc
     return parse_thread(html, page=page)
+
+
+# Classify the author's own reply rather than words quoted from someone else.
+# This intentionally avoids generic "more", "giveaway" or "ADMINBOLT" matches.
+ANNOUNCEMENT_RE = re.compile(
+    r"\bthe next\s+10\s+comments\b.*\b(?:free|giveaway)\b", re.I
+)
+KEYWORD_RE = re.compile(
+    r"\bKEYWORD\s*[;:]\s*(#?.+?)(?=\s+(?:Note:|Winners\b)|$)", re.I
+)
+WARMUP_RE = re.compile(
+    r"(?:"
+    r"\b(?:ready|up|in)\s+for\s+another\s+(?:round|giveaway)\b|"
+    r"\bwho(?:'s| is)\s+(?:here\s+and\s+)?ready\s+for\s+(?:another|the next)\b|"
+    r"\b(?:we\s+need|drum\s+up)\s+(?:some\s+)?(?:more\s+)?demand\b|"
+    r"\b(?:post\s+the\s+following|show\s+(?:some\s+)?demand)\b|"
+    r"\b(?:next|another)\s+giveaway\b.*\b(?:drop|happen|soon)\b|"
+    r"\b(?:giveaway|next\s+round)\b.*\b(?:standby|coming\s+right\s+up)\b|"
+    r"\b(?:let's\s+do\s+this|standby)\b"
+    r")", re.I
+)
+CLOSED_RE = re.compile(
+    r"(?:\bwinners?\b.{0,45}\b(?:DM(?:'d|’d|ed)|messaged|notified)\b|"
+    r"\b(?:latest|last)\s+giveaway\b.{0,60}\b(?:done|over|went\s+quick)\b)", re.I
+)
+
+
+def classify_reply(text: str) -> tuple[str, str | None]:
+    """Distinguish a new batch, imminent warmup, winners update, and ordinary reply."""
+    text = " ".join(text.split())
+    if ANNOUNCEMENT_RE.search(text):
+        match = KEYWORD_RE.search(text)
+        return "giveaway", match.group(1).strip() if match else None
+    if CLOSED_RE.search(text):
+        return "winners", None
+    if WARMUP_RE.search(text):
+        return "warmup", None
+    return "other", None
 
 
 def load_previous(path: Path) -> dict:
@@ -167,13 +218,30 @@ def check(previous: dict, fetch=fetch_page) -> tuple[dict, dict]:
     if not initial:
         for item in sorted(rows.values(), key=lambda row: row["id"]):
             if item["id"] > previous_id and item["author"] == AUTHOR:
+                own_text = item.get("own_text", item["text"])
+                category, keyword = classify_reply(own_text)
                 events.append({
                     "id": item["id"],
                     "author": item["author"],
-                    "text": item["text"][:2500],
+                    "created_at": item.get("created_at"),
+                    "category": category,
+                    "keyword": keyword,
+                    "text": own_text[:2500],
                     "url": f"https://lowendtalk.com/discussion/comment/{item['id']}/#Comment_{item['id']}",
                 })
+    # All NEW dustinc replies are recorded, even mundane discussion or winners
+    # updates. Keep the latest 120 in the same versioned monitoring checkpoint.
+    # Legacy checkpoints lacking the feed remain backward-compatible.
+    feed = {
+        row["id"]: row
+        for row in previous.get("recent_dustinc_comments", [])
+        if isinstance(row, dict) and isinstance(row.get("id"), int)
+    }
+    for event in events:
+        feed[event["id"]] = {**event, "text": event["text"][:600]}
+    recent_comments = [feed[k] for k in sorted(feed)[-120:]]
     snapshot = {
+        "recent_dustinc_comments": recent_comments,
         "checked_at": datetime.now(timezone.utc).isoformat(),
         "last_page": last_page,
         "last_comment_id": max(previous_id, observed_id),
