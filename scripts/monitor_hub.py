@@ -261,6 +261,50 @@ class HaxTask(MonitorTask):
 
 
 
+
+def format_lowendtalk_notification(items: list[dict[str, Any]]) -> str:
+    """One Feishu message per polling cycle, including EVERY new dustinc reply.
+
+    Giveaway keywords remain verbatim, ordinary chatter is compact, and links
+    let readers inspect the full source without flooding the chat.
+    """
+    counts = {category: sum(x.get("category") == category for x in items)
+              for category in ("giveaway", "warmup", "winners", "other")}
+    if counts["giveaway"]:
+        heading = "🚨 LowEndTalk 免费 VPS 新批次发布"
+    elif counts["warmup"]:
+        heading = "⚡ LowEndTalk 活动预热 / 可能即将发放"
+    elif counts["winners"]:
+        heading = "✅ LowEndTalk 最新中奖通知"
+    else:
+        heading = "💬 LowEndTalk dustinc 新回复"
+    label = {"giveaway": "🚨 正式发放", "warmup": "⚡ 活动预热",
+             "winners": "✅ 中奖结果", "other": "💬 普通回复"}
+    lines = [heading,
+             f"dustinc 本轮新增 {len(items)} 条："
+             f"发放 {counts['giveaway']} / 预热 {counts['warmup']} / "
+             f"结果 {counts['winners']} / 普通 {counts['other']}",
+             ""]
+    for item in items:
+        category = str(item.get("category") or "other")
+        label_text = label.get(category, label["other"])
+        created_at = display_time(item.get("created_at"))
+        lines.append(f"{label_text} · {created_at}")
+        if category == "giveaway":
+            if item.get("keyword"):
+                lines.append(f"🎯 参与关键词：{item['keyword']}")
+            else:
+                lines.append("⚠️ 新批次已发布，请立即查看原帖核对参与要求")
+        excerpt = " ".join(str(item.get("text") or "").split())
+        if excerpt:
+            limit = 240 if category in ("giveaway", "warmup") else 150
+            lines.append(f"📝 {excerpt[:limit]}{'…' if len(excerpt) > limit else ''}")
+        lines.append(f"🔗 {item['url']}")
+        lines.append("")
+    lines.append("注意：以原帖规则和官方确认的名额为准；监控不会自动参与。")
+    return "\n".join(lines)
+
+
 class LowEndTalkTask(MonitorTask):
     """Low-request-volume incremental LET giveaway watcher."""
 
@@ -304,16 +348,7 @@ class LowEndTalkTask(MonitorTask):
         items = result["events"]
         notified = False
         if items:
-            lines = [f"🚨 LowEndTalk: dustinc 新增 {len(items)} 条回复",
-                     "RackNerd × AdminBolt 免费 VPS 活动", ""]
-            for item in items[:8]:
-                excerpt = " ".join(str(item.get("text") or "").split())[:600]
-                lines.extend([f"📝 {excerpt or '(仅图片/无文本)'}",
-                              f"🔗 {item['url']}", ""])
-            if len(items) > 8:
-                lines.append(f"还有 {len(items) - 8} 条，请打开活动帖查看。")
-            lines.append("活动：https://lowendtalk.com/discussion/221872")
-            notified = send_feishu("\n".join(lines))
+            notified = send_feishu(format_lowendtalk_notification(items))
             if not notified:
                 self.failures += 1
                 return RunResult(False, {"events": len(items), "notification_failed": True,
