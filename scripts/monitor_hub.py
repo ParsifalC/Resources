@@ -274,8 +274,8 @@ class LowEndTalkTask(MonitorTask):
         self.failures = 0
 
     def next_interval_seconds(self) -> int:
-        # 10-13 minutes by default; double after each failure (maximum 2 hours).
-        return min(7200, self.interval_seconds * 2 ** min(self.failures, 4)) + random.randint(0, 180)
+        # 5-5.5 minutes by default; double after each failure (maximum 2 hours).
+        return min(7200, self.interval_seconds * 2 ** min(self.failures, 4)) + random.randint(0, 30)
 
     def run_once(self) -> RunResult:
         current = self.runtime_dir / "current.json"
@@ -422,7 +422,7 @@ def write_summary(
         "- Scheduler: `one long-lived Actions job`",
         f"- Target runtime: `{duration_seconds}s`",
         f"- Hax interval: `{hax_interval}s`",
-        f"- LowEndTalk interval: `{let_interval}s` + 0-180s jitter (failure backoff)",
+        f"- LowEndTalk interval: `{let_interval}s` + 0-30s jitter (failure backoff)",
         f"- Hax cleanup-window interval: `{hax_cleanup_interval}s` (16:55-17:20 UTC)",
         "",
         "### Provider results",
@@ -457,7 +457,7 @@ def main() -> int:
     parser.add_argument("--duration", type=int, default=20_400)
     parser.add_argument("--hax-interval", type=int, default=300)
     parser.add_argument("--hax-cleanup-interval", type=int, default=60)
-    parser.add_argument("--let-interval", type=int, default=600)
+    parser.add_argument("--let-interval", type=int, default=300)
     parser.add_argument("--state-dir", type=Path, default=Path(".monitor-state"))
     parser.add_argument("--runtime-dir", type=Path, default=Path(".monitor-runtime"))
     parser.add_argument("--summary", type=Path, default=Path("monitor-summary.md"))
