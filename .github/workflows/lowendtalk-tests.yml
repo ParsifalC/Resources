@@ -1,0 +1,27 @@
+name: LowEndTalk monitor tests
+
+on:
+  pull_request:
+    paths:
+      - "scripts/lowendtalk_monitor.py"
+      - "scripts/monitor_hub.py"
+      - "tests/test_lowendtalk_monitor.py"
+      - ".github/workflows/lowendtalk-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile monitoring scripts
+        run: python -m py_compile scripts/lowendtalk_monitor.py scripts/monitor_hub.py
+      - name: Unit tests (no requests to LowEndTalk)
+        run: python -m unittest discover -s tests -p "test_lowendtalk_monitor.py" -v
