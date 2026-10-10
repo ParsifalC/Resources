@@ -25,3 +25,11 @@ jobs:
         run: python -m py_compile scripts/lowendtalk_monitor.py scripts/monitor_hub.py
       - name: Unit tests (no requests to LowEndTalk)
         run: python -m unittest discover -s tests -p "test_lowendtalk_monitor.py" -v
+      - name: Live smoke test (single low-frequency trial; do not retry)
+        continue-on-error: true
+        run: |
+          python3 scripts/lowendtalk_monitor.py \
+            --previous /tmp/let-smoke-missing-state.json \
+            --output /tmp/let-smoke-state.json \
+            --events /tmp/let-smoke-events.json
+
