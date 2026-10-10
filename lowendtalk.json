@@ -1,6 +1,62 @@
 {
-  "checked_at": "2026-10-10T05:01:23.975166+00:00",
-  "last_page": 15,
-  "last_comment_id": 4879792,
+  "recent_dustinc_comments": [
+    {
+      "id": 4879807,
+      "author": "dustinc",
+      "created_at": "2026-10-10T05:11:54+00:00",
+      "category": "other",
+      "keyword": null,
+      "text": "Hi @buggedout -- Thank You for giving AdminBolt a try and sharing your feedback! Design can always be improved, and I'm sure feedback like this will help shape changes that users appreciate. I am sure that @adminbolt @Chris_AdminBolt will be taking this into serious consideration for a future update/release Putting design aside, when it comes to functionality, out of curiosity if you've used cPanel/WHM or DirectAdmin before, how does AdminBolt compare in terms of functionality and the tasks you normally use a panel for? The good news is that the AdminBolt team has been receptive to suggestions",
+      "url": "https://lowendtalk.com/discussion/comment/4879807/#Comment_4879807"
+    },
+    {
+      "id": 4879808,
+      "author": "dustinc",
+      "created_at": "2026-10-10T05:12:20+00:00",
+      "category": "other",
+      "keyword": null,
+      "text": "Woot woot! That's a good idea",
+      "url": "https://lowendtalk.com/discussion/comment/4879808/#Comment_4879808"
+    },
+    {
+      "id": 4879809,
+      "author": "dustinc",
+      "created_at": "2026-10-10T05:13:58+00:00",
+      "category": "other",
+      "keyword": null,
+      "text": "Hi @arenanan -- Thanks for sharing your experience/feedback! Great to hear the setup was painless and managing sites/domains along with email felt straightforward Out of curiosity, what sort of advanced features would you most like to see added? Is there something you found in other panels (e.g. cPanel, DirectAdmin) which AdminBolt does not have yet? The AdminBolt team is following along, and specific suggestions help them understand what users need. I know that they have MCP support, which I'd definitely consider a more modern feature, which I can appreciate. Appreciate the feedback either wa",
+      "url": "https://lowendtalk.com/discussion/comment/4879809/#Comment_4879809"
+    },
+    {
+      "id": 4879811,
+      "author": "dustinc",
+      "created_at": "2026-10-10T05:16:17+00:00",
+      "category": "other",
+      "keyword": null,
+      "text": "Hi @Parsifal -- Thank You for the kind words! Always great to give back to a community that's supported us over the years, and it's been fun teaming up with AdminBolt to make this happen As for the next batch... well, historically speaking, drumming up some demand always helps! We've still got 50 VPS left to give away, so keep an eye out on my latest posts for the next batch",
+      "url": "https://lowendtalk.com/discussion/comment/4879811/#Comment_4879811"
+    },
+    {
+      "id": 4879812,
+      "author": "dustinc",
+      "created_at": "2026-10-10T05:17:02+00:00",
+      "category": "other",
+      "keyword": null,
+      "text": "I'm digging it, nice!!",
+      "url": "https://lowendtalk.com/discussion/comment/4879812/#Comment_4879812"
+    },
+    {
+      "id": 4879814,
+      "author": "dustinc",
+      "created_at": "2026-10-10T05:22:18+00:00",
+      "category": "warmup",
+      "keyword": null,
+      "text": "Hi @forest -- We're only about halfway through, so you still got time and plenty of opportunities coming up! We need some ideas and some motivation here, what do you think? Here are some ideas - hype it up, hype it up! If we get more demand, we might just make another giveaway happen #RACKNERD + ADMINBOLT = MORE HOSTING, LESS LICENSING PAIN! #ADMINBOLT = FLAT-RATE FREEDOM FOR THE MODERN HOSTING ERA! #RACKNERD + ADMINBOLT = BIG IDEAS DESERVE BETTER HOSTING TOOLS! #ADMINBOLT = GROW YOUR HOSTING, NOT YOUR PER-ACCOUNT BILL!",
+      "url": "https://lowendtalk.com/discussion/comment/4879814/#Comment_4879814"
+    }
+  ],
+  "checked_at": "2026-10-10T10:41:50.878419+00:00",
+  "last_page": 16,
+  "last_comment_id": 4879944,
   "thread_id": 221872
 }
