@@ -1,60 +1,49 @@
 #!/usr/bin/env python3
-"""One-time anonymous read of latest replies, no credentials or retries."""
+"""One-shot anonymous check of RackNerd giveaway announcement times, no retries."""
 import sys
-import re
-import urllib.request
+import time
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lowendtalk_monitor import THREAD_URL, ThreadParser
+from lowendtalk_monitor import THREAD_URL, ThreadParser, classify_reply, fetch_page
 
-class TimedParser(ThreadParser):
-    def handle_starttag(self, tag, attrs):
-        super().handle_starttag(tag, attrs)
-        if self.comment is not None and tag.lower() == 'time':
-            dt = dict(attrs).get('datetime')
-            if dt:
-                self.comment['created_at'] = dt
+records = {}
+def get(page):
+    result=fetch_page(page)
+    print("PAGE", page, "COUNT", len(result.comments), "AVAILABLE", sorted(result.pages),flush=True)
+    for row in result.comments:
+        records[row["id"]]=row
+    return result
 
-def fetch(page):
-    request = urllib.request.Request(f'{THREAD_URL}/p{page}', headers={
-        'User-Agent': 'ResourcesTimestampCheck/1.0 (+https://github.com/ParsifalC/Resources)',
-        'Accept': 'text/html',
-        'Accept-Language': 'en-US,en;q=0.9'
-    })
-    with urllib.request.urlopen(request, timeout=20) as response:
-        raw = response.read(2_000_000).decode('utf-8','replace')
-    parser = TimedParser()
-    parser.feed(raw)
-    parser.close()
-    return parser
+# Check the latest page first, and scan any newly created pages.
+last=get(16)
+latest=max(last.pages)
+if latest > 20:
+    print("TOO_MANY_PAGES",latest, "stopping, to avoid excessive requests")
+    sys.exit(1)
+for page in range(17, latest+1):
+    time.sleep(2)
+    get(page)
 
-data = {}
-try:
-    start = fetch(15)
-    print('PAGE',15,'pages',sorted(start.pages),'count',len(start.comments),flush=True)
-    for row in start.comments:
-        data[row['id']] = row
-    latest = max(start.pages)
-    if latest>15:
-        if latest>18:
-            print('TOO_MANY_NEW_PAGES',latest,'stopping',flush=True)
-        else:
-            for number in range(16,latest+1):
-                p=fetch(number)
-                print('PAGE',number,'count',len(p.comments),'pages',sorted(p.pages),flush=True)
-                for row in p.comments:
-                    data[row['id']]=row
-    rows=sorted(data.values(),key=lambda x:x['id'])
-    han=re.compile('[一-龥]')
-    for page_label,subset in [('latest_page', [r for r in rows if r['id'] >= 4879819]),('all_loaded',rows)]:
-        chinese=[r for r in subset if han.search(r.get('own_text') or r.get('text',''))]
-        print('LANG_STATS',page_label,'total',len(subset),'chinese',len(chinese),flush=True)
-        for r in chinese[:25]:
-            print('HAN_COMMENT',r['id'],r['author'],repr((r.get('own_text') or r.get('text',''))[:800]),flush=True)
-    print('LATEST_COMMENT_ID', rows[-1]['id'] if rows else None,flush=True)
-    print('LATEST_FIVE_ALL_REPLIES',flush=True)
-    for item in rows[-5:]:
-        print('COMMENT',item['id'],item['author'],item.get('created_at'),repr(item['text'][:2500]),flush=True)
-except Exception as exc:
-    print('FETCH_ERROR',type(exc).__name__,str(exc),flush=True)
-    raise
+# Earlier pages needed to identify and time the most recent completed batches.
+for page in [11,12,13,14]:
+    time.sleep(2)
+    get(page)
+
+rows=sorted(records.values(), key=lambda r:r["id"])
+print("LAST_COMMENT",rows[-1]["id"],rows[-1].get("created_at"))
+print("LATEST_12")
+for r in rows[-12:]:
+    print("LATEST",r["id"],r["author"],r.get("created_at"),repr(r.get("own_text",r["text"])[:450]))
+print("ANNOUNCEMENTS")
+for r in rows:
+    if r["author"] != "dustinc": continue
+    t=r.get("own_text",r["text"])
+    category,keyword=classify_reply(t)
+    if category=="giveaway":
+        print("GIVEAWAY",r["id"],r.get("created_at"),"KEYWORD",repr(keyword),"TEXT",repr(t[:1250]))
+    elif r["id"]>=4879814 and category in ("warmup","winners"):
+        print("SIGNAL",r["id"],r.get("created_at"),category,repr(t[:500]))
+print("NEW_DUSTINC")
+for r in rows:
+    if r["author"]=="dustinc" and r["id"]>4879814:
+        print("DUSTINC",r["id"],r.get("created_at"),repr(r.get("own_text",r["text"])[:800]))
