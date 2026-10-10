@@ -22,9 +22,9 @@ THREAD_URL = ("https://lowendtalk.com/discussion/221872/"
               "giveaway-by-adminbolt-racknerd-100x-free-vps-for-a-year-20x-"
               "lifetime-licenses-lets-talk")
 AUTHOR = "dustinc"
-PAGE_RE = re.compile(r"/discussion/221872/(?:[^?#]*?/)?p(\\d+)(?:[/?#]|$)", re.I)
+PAGE_RE = re.compile(r"/discussion/221872/(?:[^?#]*?/)?p(\d+)(?:[/?#]|$)", re.I)
 PROFILE_RE = re.compile(r"(?:^|/)profile/([^/?#]+)", re.I)
-COMMENT_RE = re.compile(r"^Comment_(\\d+)$", re.I)
+COMMENT_RE = re.compile(r"^Comment_(\d+)$", re.I)
 VOID = frozenset("area base br col embed hr img input link meta param source track wbr".split())
 
 
