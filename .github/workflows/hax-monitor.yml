@@ -10,6 +10,7 @@ on:
     branches: [master]
     paths:
       - "scripts/hax_monitor.py"
+      - "scripts/lowendtalk_monitor.py"
       - "scripts/monitor_hub.py"
       - ".github/workflows/hax-monitor.yml"
 
@@ -34,6 +35,7 @@ jobs:
     env:
       MONITOR_SECONDS: 20400
       HAX_INTERVAL_SECONDS: 300
+      LET_INTERVAL_SECONDS: 600
       HAX_CLEANUP_INTERVAL_SECONDS: 60
       FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
       FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
@@ -49,7 +51,7 @@ jobs:
           set -euo pipefail
           mkdir -p .monitor-state
           if git fetch origin monitor-state:refs/remotes/origin/monitor-state 2>/dev/null; then
-            for file in hax.json; do
+            for file in hax.json lowendtalk.json; do
               git show "origin/monitor-state:${file}" > ".monitor-state/${file}" 2>/dev/null || true
             done
           fi
@@ -74,6 +76,7 @@ jobs:
           args=(
             --duration "$MONITOR_SECONDS"
             --hax-interval "$HAX_INTERVAL_SECONDS"
+            --let-interval "$LET_INTERVAL_SECONDS"
             --hax-cleanup-interval "$HAX_CLEANUP_INTERVAL_SECONDS"
             --state-dir .monitor-state
             --runtime-dir .monitor-runtime
@@ -118,7 +121,7 @@ jobs:
 
           (
             cd "$tmp"
-            for file in hax.json; do
+            for file in hax.json lowendtalk.json; do
               if [ -e "$file" ]; then
                 git add "$file"
               fi
