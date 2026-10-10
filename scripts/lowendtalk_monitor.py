@@ -162,7 +162,9 @@ CLOSED_RE = re.compile(
 def classify_reply(text: str) -> tuple[str, str | None]:
     """Distinguish a new batch, imminent warmup, winners update, and ordinary reply."""
     text = " ".join(text.split())
-    if ANNOUNCEMENT_RE.search(text):
+    is_official_giveaway = ("racknerd & adminbolt giveaway!" in text.casefold() and
+                           "free" in text.casefold() and "vps" in text.casefold())
+    if ANNOUNCEMENT_RE.search(text) or is_official_giveaway:
         match = KEYWORD_RE.search(text)
         return "giveaway", match.group(1).strip() if match else None
     if CLOSED_RE.search(text):
