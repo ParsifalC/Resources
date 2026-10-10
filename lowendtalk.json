@@ -53,10 +53,163 @@
       "keyword": null,
       "text": "Hi @forest -- We're only about halfway through, so you still got time and plenty of opportunities coming up! We need some ideas and some motivation here, what do you think? Here are some ideas - hype it up, hype it up! If we get more demand, we might just make another giveaway happen #RACKNERD + ADMINBOLT = MORE HOSTING, LESS LICENSING PAIN! #ADMINBOLT = FLAT-RATE FREEDOM FOR THE MODERN HOSTING ERA! #RACKNERD + ADMINBOLT = BIG IDEAS DESERVE BETTER HOSTING TOOLS! #ADMINBOLT = GROW YOUR HOSTING, NOT YOUR PER-ACCOUNT BILL!",
       "url": "https://lowendtalk.com/discussion/comment/4879814/#Comment_4879814"
+    },
+    {
+      "id": 4880373,
+      "author": "dustinc",
+      "created_at": "2026-10-10T18:02:00+00:00",
+      "category": "other",
+      "keyword": null,
+      "text": "Hi @Andru -- Glad it's looking good so far! According to AdminBolt's documentation, the documented path is to install AdminBolt on AlmaLinux 9 or Rocky Linux 9, then convert to CloudLinux afterwards via the panel at the \"/admin/cloudlinux-installer\" path: https://docs.adminbolt.com/1.7/user-guide/integrations/cloudlinux Did you try installing directly on a fresh CloudLinux OS server, or did you start on AlmaLinux 9 and run into issues during the conversion? If you started directly on CloudLinux, that may explain the installer changes you needed. Either way, I'm sure that @Chris_AdminBolt can b",
+      "url": "https://lowendtalk.com/discussion/comment/4880373/#Comment_4880373"
+    },
+    {
+      "id": 4880374,
+      "author": "dustinc",
+      "created_at": "2026-10-10T18:02:31+00:00",
+      "category": "other",
+      "keyword": null,
+      "text": "True, I'm with you on that 😄",
+      "url": "https://lowendtalk.com/discussion/comment/4880374/#Comment_4880374"
+    },
+    {
+      "id": 4880376,
+      "author": "dustinc",
+      "created_at": "2026-10-10T18:02:59+00:00",
+      "category": "other",
+      "keyword": null,
+      "text": "Woot woot, appreciate the energy 💥 If we can keep this up, we might just make something happen today, woot woot!",
+      "url": "https://lowendtalk.com/discussion/comment/4880376/#Comment_4880376"
+    },
+    {
+      "id": 4880377,
+      "author": "dustinc",
+      "created_at": "2026-10-10T18:04:38+00:00",
+      "category": "other",
+      "keyword": null,
+      "text": "Hi @buggedout -- That makes sense! Having those controls readily available in the panel adds convenience, especially for users who aren't comfortable editing files themselves. Appreciate you explaining the features you found useful in Plesk -- that gives the AdminBolt team more specific feedback to consider too",
+      "url": "https://lowendtalk.com/discussion/comment/4880377/#Comment_4880377"
+    },
+    {
+      "id": 4880380,
+      "author": "dustinc",
+      "created_at": "2026-10-10T18:05:43+00:00",
+      "category": "other",
+      "keyword": null,
+      "text": "Hi @forest -- Same as it's always been for RackNerd VPS services -- so the 7 TB allowance counts both incoming and outgoing traffic. We send courtesy email notifications at 90% and 95% usage, and the VPS is automatically suspended if it reaches 100%. The bandwidth allocation is monthly so the counter resets on the 1st of every month, UTC timezone",
+      "url": "https://lowendtalk.com/discussion/comment/4880380/#Comment_4880380"
+    },
+    {
+      "id": 4880381,
+      "author": "dustinc",
+      "created_at": "2026-10-10T18:07:03+00:00",
+      "category": "other",
+      "keyword": null,
+      "text": "Hi @giang! Congrats on the win, and you're very welcome 👊 Appreciate you trying AdminBolt and sharing both what you liked and where it could improve. Great to hear the straightforward setup, passkey login, and certificate options fit your needs. @Chris_AdminBolt -- perhaps you can clarify the nginx question? Thanks again for the feedback!",
+      "url": "https://lowendtalk.com/discussion/comment/4880381/#Comment_4880381"
+    },
+    {
+      "id": 4880387,
+      "author": "dustinc",
+      "created_at": "2026-10-10T18:16:38+00:00",
+      "category": "other",
+      "keyword": null,
+      "text": "@tenebriouslypuissant -- Maybe less than you'd expect The space is moving quickly, and IMO it's hard to justify a control panel license costing more than the dedicated server it runs on (in many cases!) But pricing is only part of it. Security and the underlying architecture matter a lot, too. April's critical cPanel/WHM authentication bypass, and the vulnerabilities following that in recent months was a serious reminder of that. There's a lot to be said for building on a modern framework and using its established security protections correctly from day one. That's part of why AdminBolt appeal",
+      "url": "https://lowendtalk.com/discussion/comment/4880387/#Comment_4880387"
+    },
+    {
+      "id": 4880389,
+      "author": "dustinc",
+      "created_at": "2026-10-10T18:18:34+00:00",
+      "category": "other",
+      "keyword": null,
+      "text": "Yes, that is correct: https://docs.adminbolt.com/bolt-migrate",
+      "url": "https://lowendtalk.com/discussion/comment/4880389/#Comment_4880389"
+    },
+    {
+      "id": 4880393,
+      "author": "dustinc",
+      "created_at": "2026-10-10T18:22:30+00:00",
+      "category": "other",
+      "keyword": null,
+      "text": "Woot woot! @ashish168527 -- Thank You for giving AdminBolt a try and sharing such specific feedback! Great to hear deployment through RackNerd ctrl was quick and onboarding went smoothly Sounds like you've already explored quite a bit -- I'll leave it to @adminbolt / @Chris_AdminBolt to better comment on your observations and suggestions. Appreciate you sharing both the positives and the areas you'd like to see improved!",
+      "url": "https://lowendtalk.com/discussion/comment/4880393/#Comment_4880393"
+    },
+    {
+      "id": 4880399,
+      "author": "dustinc",
+      "created_at": "2026-10-10T18:28:29+00:00",
+      "category": "other",
+      "keyword": null,
+      "text": "Hi @pwned -- Thank You for the detailed notes! There's some overlap between RackNerd and AdminBolt feedback here, but I appreciate all of it -- the overall experience matters On the infrastructure side, correct: RackNerd does not block port 25 by default. AdminBolt is primarily a web hosting control panel, so VPN tools are a separate use case. You can deploy WireGuard/wg-easy through the One Click Apps section in RackNerd ctrl. More on the available apps here: https://racknerd.com/ai-vps AdminBolt is one of many apps we offer through One Click Apps for convenience. Your VPS includes full root ",
+      "url": "https://lowendtalk.com/discussion/comment/4880399/#Comment_4880399"
+    },
+    {
+      "id": 4880401,
+      "author": "dustinc",
+      "created_at": "2026-10-10T18:32:43+00:00",
+      "category": "other",
+      "keyword": null,
+      "text": "Hi @MagdAlmuntaser -- Absolutely! You don't need to win a giveaway to try AdminBolt Anyone can install it on a compatible VPS over SSH using: curl -fsSL https://get.adminbolt.com/install.sh | bash When you first access the panel, onboarding will ask for your email address. Click the confirmation link sent to your email to activate the 30-day free trial. Separately, if you win one of our VPS giveaways, you'll receive a free VPS for one year! After installing AdminBolt, sharing your feedback in this thread, and replying to my DM to confirm you've done so, we'll arrange for the AdminBolt license ",
+      "url": "https://lowendtalk.com/discussion/comment/4880401/#Comment_4880401"
+    },
+    {
+      "id": 4880408,
+      "author": "dustinc",
+      "created_at": "2026-10-10T18:40:25+00:00",
+      "category": "warmup",
+      "keyword": null,
+      "text": "Let's drum up some demand so we can make this a reality! Who wants to see another giveaway happen? Post the following to show demand: #WHO'S SLEEPING? NOT ME, BABY! ITS PARTY TIME!!",
+      "url": "https://lowendtalk.com/discussion/comment/4880408/#Comment_4880408"
+    },
+    {
+      "id": 4880436,
+      "author": "dustinc",
+      "created_at": "2026-10-10T19:04:28+00:00",
+      "category": "other",
+      "keyword": null,
+      "text": "Hi @hellollm -- Those cPanel licensing costs can definitely add up quickly across a VPS fleet! We've still got more giveaways coming, so keep an eye on the thread. Rooting for you to catch the next batch",
+      "url": "https://lowendtalk.com/discussion/comment/4880436/#Comment_4880436"
+    },
+    {
+      "id": 4880437,
+      "author": "dustinc",
+      "created_at": "2026-10-10T19:05:06+00:00",
+      "category": "other",
+      "keyword": null,
+      "text": "Love this, I think we should do it 💕",
+      "url": "https://lowendtalk.com/discussion/comment/4880437/#Comment_4880437"
+    },
+    {
+      "id": 4880438,
+      "author": "dustinc",
+      "created_at": "2026-10-10T19:05:21+00:00",
+      "category": "warmup",
+      "keyword": null,
+      "text": "Let's make this giveaway happen. Standby!",
+      "url": "https://lowendtalk.com/discussion/comment/4880438/#Comment_4880438"
+    },
+    {
+      "id": 4880439,
+      "author": "dustinc",
+      "created_at": "2026-10-10T19:06:05+00:00",
+      "category": "giveaway",
+      "keyword": "#WE'RE TAKING CTRL WITH RACKNERD + ADMINBOLT!",
+      "text": "RackNerd & AdminBolt Giveaway! The next 10 comments with the following hash tag will receive a FREE 4 GB RAM VPS in Los Angeles for 1 year. No obligation to renew, no gimmicks, no catch. Simply FREE Winners will be contacted via DM. Winners will be eligible to receive 1 YEAR FREE AdminBolt licensing per the guidelines mentioned in the original post. Note: Comment cannot be edited and there should be nothing else in your comment other than the keyword below. Including the hashtag (#) before the keyword is optional. If you've already won a prior giveaway within this thread, you're welcome to joi",
+      "url": "https://lowendtalk.com/discussion/comment/4880439/#Comment_4880439"
+    },
+    {
+      "id": 4880546,
+      "author": "dustinc",
+      "created_at": "2026-10-10T20:51:12+00:00",
+      "category": "other",
+      "keyword": null,
+      "text": "#More AdminBolt, More RackNerd MOARRRR GIVEAWAYS!! Talk to me.",
+      "url": "https://lowendtalk.com/discussion/comment/4880546/#Comment_4880546"
     }
   ],
-  "checked_at": "2026-10-10T16:20:07.897145+00:00",
-  "last_page": 17,
-  "last_comment_id": 4880300,
+  "checked_at": "2026-10-10T21:59:44.752859+00:00",
+  "last_page": 21,
+  "last_comment_id": 4880600,
   "thread_id": 221872
 }
