@@ -371,15 +371,19 @@ class TaskStats:
 
 
 def build_tasks(args: argparse.Namespace) -> list[MonitorTask]:
-    return [
-        LowEndTalkTask(args.state_dir, args.runtime_dir, args.let_interval),
+    tasks: list[MonitorTask] = [
         HaxTask(
             args.state_dir,
             args.runtime_dir,
             args.hax_interval,
             args.hax_cleanup_interval,
-        ),
+        )
     ]
+    if os.environ.get("LET_MONITOR_ENABLED", "true").strip().casefold() in {"0", "false", "no", "off"}:
+        print("[lowendtalk] paused by LET_MONITOR_ENABLED=false", flush=True)
+    else:
+        tasks.insert(0, LowEndTalkTask(args.state_dir, args.runtime_dir, args.let_interval))
+    return tasks
 
 
 def run_scheduler(tasks: list[MonitorTask], duration_seconds: int) -> dict[str, TaskStats]:
@@ -457,7 +461,7 @@ def write_summary(
         "- Scheduler: `one long-lived Actions job`",
         f"- Target runtime: `{duration_seconds}s`",
         f"- Hax interval: `{hax_interval}s`",
-        f"- LowEndTalk interval: `{let_interval}s` + 0-30s jitter (failure backoff)",
+        f"- LowEndTalk: {f`interval {let_interval}s + 0-30s jitter (failure backoff)` if 'lowendtalk' in stats else 'paused'}",
         f"- Hax cleanup-window interval: `{hax_cleanup_interval}s` (16:55-17:20 UTC)",
         "",
         "### Provider results",
