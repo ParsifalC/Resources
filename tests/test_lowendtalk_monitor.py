@@ -1,13 +1,15 @@
 """Offline fixtures: parser, cursor initialization, page transitions and safe failures."""
 import sys
+import os
 import unittest
+from argparse import Namespace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from lowendtalk_monitor import check, parse_thread, classify_reply
-from monitor_hub import format_lowendtalk_notification, LowEndTalkTask
+from monitor_hub import format_lowendtalk_notification, LowEndTalkTask, build_tasks
 
 
 def html(page, comments, pages=()):
@@ -24,6 +26,21 @@ def html(page, comments, pages=()):
 
 
 class LowEndTalkMonitorTests(unittest.TestCase):
+    def test_pause_lowendtalk_without_stopping_hax(self):
+        with TemporaryDirectory() as tmp:
+            args = Namespace(
+                state_dir=Path(tmp) / "state",
+                runtime_dir=Path(tmp) / "runtime",
+                let_interval=180,
+                hax_interval=300,
+                hax_cleanup_interval=60,
+            )
+            with patch.dict(os.environ, {"LET_MONITOR_ENABLED": "false"}):
+                self.assertEqual([task.name for task in build_tasks(args)], ["hax"])
+            with patch.dict(os.environ, {"LET_MONITOR_ENABLED": "true"}):
+                self.assertEqual([task.name for task in build_tasks(args)], ["lowendtalk", "hax"])
+
+
     def test_three_minute_polling_with_jitter_and_failure_backoff(self):
         with TemporaryDirectory() as tmp:
             task = LowEndTalkTask(Path(tmp) / "state", Path(tmp) / "runtime", 180)
