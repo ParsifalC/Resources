@@ -1,35 +1,25 @@
 #!/usr/bin/env python3
-"""One-off anonymous audit of user's recent comments; no account logins or retries."""
-from datetime import datetime
-import time
-from lowendtalk_monitor import fetch_page, classify_reply
+"""One-off check of embedded image presence in public LET replies."""
+import urllib.request
+from lowendtalk_monitor import THREAD_URL, ThreadParser
 
-first=fetch_page(1)
-last=max(first.pages)
-print("LAST_PAGE",last,flush=True)
-if last>40:
-    print("PAGE_GUARD_STOP",last,flush=True)
-    raise SystemExit(1)
-records={}
-start=max(2,last-6)
-for page in range(start,last+1):
-    if records:time.sleep(1.5)
-    parsed=fetch_page(page)
-    print("PAGE",page,"SIZE",len(parsed.comments),"IDS",parsed.comments[0]["id"] if parsed.comments else None,parsed.comments[-1]["id"] if parsed.comments else None,flush=True)
-    for row in parsed.comments:
-        records[row["id"]]=row
-rows=[records[k] for k in sorted(records)]
-print("LATEST_COMMENT",rows[-1]["id"], rows[-1].get("created_at"),flush=True)
-print("ALL_PARSIFAL_RECENT",flush=True)
-for r in rows:
-    if r["author"]=="parsifal":
-        print("PARSIFAL",r["id"],r.get("created_at"),repr(r.get("own_text",r["text"])[:1800]),flush=True)
-print("RECENT_OFFICIAL",flush=True)
-for r in rows:
-    if r["author"]=="dustinc":
-        t=r.get("own_text") or r["text"]
-        cat,kw=classify_reply(t)
-        print("DUSTINC",r["id"],r.get("created_at"),cat,repr(kw),repr(t[:850]),flush=True)
-print("LATEST_22_REPLIES",flush=True)
-for r in rows[-22:]:
-    print("LATEST",r["id"],r["author"],r.get("created_at"),repr((r.get("own_text") or r["text"])[:220]),flush=True)
+class ImageParser(ThreadParser):
+    def __init__(self):
+        super().__init__()
+        self.pictures={}
+    def handle_starttag(self,tag,attrs):
+        super().handle_starttag(tag,attrs)
+        if tag=='img' and self.comment is not None:
+            a=dict(attrs)
+            self.pictures.setdefault(self.comment['id'],[]).append(
+                {'src':a.get('src'),'alt':a.get('alt'),'inside_quote':self._in_quote()})
+req=urllib.request.Request(THREAD_URL+'/p24',headers={'User-Agent':'ResourcesGiveawayMonitor/1.0'})
+with urllib.request.urlopen(req,timeout=20) as r:
+    document=r.read(2_000_000).decode('utf8','replace')
+p=ImageParser()
+p.feed(document)
+p.close()
+for row in p.comments:
+    if row['id'] in (4880882,4880883,4880884,4880885):
+        print('COMMENT',row['id'],'AUTHOR',row['author'],'TEXT',repr(row['own_text']),
+              'IMAGES',repr(p.pictures.get(row['id'],[])))
