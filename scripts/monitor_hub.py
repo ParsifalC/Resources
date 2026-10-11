@@ -461,7 +461,7 @@ def write_summary(
         "- Scheduler: `one long-lived Actions job`",
         f"- Target runtime: `{duration_seconds}s`",
         f"- Hax interval: `{hax_interval}s`",
-        f"- LowEndTalk: {f`interval {let_interval}s + 0-30s jitter (failure backoff)` if 'lowendtalk' in stats else 'paused'}",
+        f"- LowEndTalk interval: `{let_interval}s` + 0-30s jitter (failure backoff)" if "lowendtalk" in stats else "- LowEndTalk: paused",
         f"- Hax cleanup-window interval: `{hax_cleanup_interval}s` (16:55-17:20 UTC)",
         "",
         "### Provider results",
