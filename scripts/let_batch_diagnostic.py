@@ -1,47 +1,48 @@
 #!/usr/bin/env python3
-"""One-shot anonymous audit of RackNerd giveaway rounds; no retries, no login."""
-from datetime import datetime,timezone,timedelta
-import re
-import time
-from lowendtalk_monitor import fetch_page,classify_reply
+"""One-time anonymous public audit of latest RackNerd Giveaway responses."""
+import re, time, html
+import urllib.request
+from lowendtalk_monitor import THREAD_URL, parse_thread
 
-first=fetch_page(1)
-last=max(first.pages)
-print("CURRENT_PAGE_COUNT",last,flush=True)
-if last>45:
-    print("STOP: page bound exceeded",flush=True)
-    raise SystemExit(2)
-pages={}
-for p in [18,22,23]+list(range(24,last+1)):
-    if pages:time.sleep(1.5)
-    r=fetch_page(p)
-    pages[p]=r.comments
-    print("PAGE",p,"COUNT",len(r.comments),
-          "ID_RANGE",(r.comments[0]["id"],r.comments[-1]["id"]) if r.comments else None,flush=True)
-announcements=[]
-all_dustinc=[]
-for p in sorted(pages):
-    for i,r in enumerate(pages[p]):
-        if r["author"]!="dustinc":continue
-        raw=r.get("own_text") or r["text"]
-        cat,keyword=classify_reply(raw)
-        is_round=bool(re.search(r'RackNerd\\s*&\\s*AdminBolt Giveaway!|the next 10 (?:eligible )?comments|next (?:ten|10) eligible comments',raw,re.I))
-        rec=(p,i,r["id"],r.get("created_at"),cat,keyword,raw)
-        all_dustinc.append(rec)
-        if is_round: announcements.append(rec)
-print("ROUNDS_POSTED",len(announcements),flush=True)
-for p,i,id,dt,cat,key,t in announcements:
-    print("GIVEAWAY",id,"PAGE",p,"INDEX",i,"UTC",dt,"CLASS",cat,
-          "KEYWORD",repr(key),"TEXT",repr(t[:1900]),flush=True)
-for a,b in zip(announcements,announcements[1:]):
-    ap,ai,aid,adt,*_=a;bp,bi,bid,bdt,*_=b
-    if all(p in pages for p in range(ap,bp+1)):
-        num=sum(1 for p in range(ap,bp+1) for r in pages[p] if aid<r["id"]<bid)
-        print("ROUND_GAP",aid,bid,"COUNT",num,"MODE","full-scan",flush=True)
-    else:
-        print("ROUND_GAP",aid,bid,"COUNT",30*(bp-ap)+bi-ai-1,"MODE","page-arithmetic",flush=True)
-print("DUSTINC_LAST_25",flush=True)
-for p,i,id,dt,cat,key,t in all_dustinc[-25:]:
-    print("DUSTINC",id,"UTC",dt,"CLASS",cat,"KEYWORD",repr(key),"TEXT",repr(t[:450]),flush=True)
-latest=pages[last][-1]
-print("LATEST",latest["id"],latest["author"],latest.get("created_at"),flush=True)
+BATCH_ID=4882286
+def load(p):
+    u=THREAD_URL + ("/p"+str(p) if p>1 else "")
+    req=urllib.request.Request(u, headers={"User-Agent":"ResourcesGiveawayMonitor/1.0 (+https://github.com/ParsifalC/Resources)", "Accept":"text/html"})
+    with urllib.request.urlopen(req,timeout=20) as r:
+        d=r.read(2_000_001)
+        if len(d)>2_000_000: raise ValueError("page too big")
+        page=d.decode(r.headers.get_content_charset() or "utf-8","replace")
+    parser=parse_thread(page,page=p)
+    return page,parser
+
+raw,parsed=load(37)
+last=max(parsed.pages)
+print("LATEST_PAGE",last,flush=True)
+if last>45: raise SystemExit("Page guard triggered; manual check needed")
+pages={37:(raw,parsed)}
+for p in range(38,last+1):
+    time.sleep(1.5)
+    pages[p]=load(p)
+    print("PAGE",p,"ROWS",len(pages[p][1].comments),flush=True)
+
+ann=next(x for x in parsed.comments if x['id']==BATCH_ID)
+print("OFFICIAL",ann,flush=True)
+
+# Extract original HTML for announcement; HTML order: li id=Comment_... followed by next li.
+pos=raw.find('id="Comment_'+str(BATCH_ID)+'"')
+if pos<0: raise RuntimeError("announcement raw HTML not found")
+nxt=re.search(r'<li\\b[^>]*id="Comment_\\d+"',raw[pos+3:],re.I)
+end=pos+3+nxt.start() if nxt else pos+12000
+fragment=raw[pos:end]
+marker='Count the number of dots below correctly:'
+at=fragment.find(marker)
+print("OFFICIAL_DOTS_AROUND",repr(fragment[at-400:at+5000] if at>=0 else fragment[:7000]),flush=True)
+
+for p,(htmlsrc,parsed) in pages.items():
+    rows=[r for r in parsed.comments if r["id"]>BATCH_ID]
+    print("PAGE_AUDIT",p,len(rows),flush=True)
+    for r in rows:
+        t=r.get('own_text') or r['text']
+        text=repr(t[:320])
+        print("ENTRY",r["id"],r["author"],r.get("created_at"),text,flush=True)
+print("AUDIT_DONE",flush=True)
