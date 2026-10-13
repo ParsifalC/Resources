@@ -1,21 +1,28 @@
 #!/usr/bin/env python3
-"""One-off anonymous LET thread status check."""
+"""Single anonymous status check of recent LET giveaway announcements. No retries."""
 import time
-from lowendtalk_monitor import fetch_page,classify_reply
-p=fetch_page(40)
-last=max(p.pages)
+from lowendtalk_monitor import fetch_page, classify_reply
+first=fetch_page(1)
+last=max(first.pages)
 print("LAST_PAGE",last,flush=True)
-if last>65:raise SystemExit("too many pages")
-rows={}
-for n in range(37,last+1):
-    if n>37:time.sleep(1.5)
-    page=p if n==40 else fetch_page(n)
-    print("PAGE",n,"ROWS",len(page.comments),flush=True)
-    for item in page.comments:rows[item["id"]]=item
-for r in sorted(rows.values(),key=lambda x:x["id"]):
-    if r["author"]!="dustinc":continue
+if last>85: raise ValueError("Thread too large for bounded diagnostic")
+start=min(last,37)
+records={}
+for n in range(start,last+1):
+    if n>start:time.sleep(1.2)
+    p=fetch_page(n)
+    print("PAGE",n,"ROWS",len(p.comments),"LAST_ID",p.comments[-1]["id"],flush=True)
+    for r in p.comments:records[r["id"]]=r
+if last>=2:
+    print("LATEST_COMMENT",max(records),records[max(records)].get("created_at"),flush=True)
+dus=[]
+for r in sorted(records.values(),key=lambda x:x["id"]):
+    if r["author"]!="dustinc": continue
     t=r.get("own_text") or r["text"]
-    cat,kw=classify_reply(t)
-    if "RackNerd & AdminBolt Giveaway!" in t:print("BATCH",r["id"],r.get("created_at"),repr(t[:1800]),flush=True)
-    elif cat in ("warmup","winners") or any(x in t.lower() for x in ("winner","remaining","giveaway","claimed","license")):print("DUSTINC",r["id"],r.get("created_at"),cat,repr(t[:420]),flush=True)
-print("LATEST",max(rows),rows[max(rows)].get("created_at"),flush=True)
+    c,k=classify_reply(t)
+    if "racknerd & adminbolt giveaway!" in t.casefold() and "free" in t.casefold():
+        print("BATCH",r["id"],r.get("created_at"),"KEYWORD",repr(k),"TEXT",repr(t[:1800]),flush=True)
+    dus.append((r["id"],r.get("created_at"),c,repr(t[:550])))
+print("LATEST_DUSTINC_POSTS",flush=True)
+for row in dus[-32:]:print("HOST",*row,flush=True)
+print("DONE",flush=True)
