@@ -343,7 +343,16 @@ class LowEndTalkTask(MonitorTask):
             self.failures += 1
             print(f"[lowendtalk] probe invalid (rc={rc}); preserving checkpoint; "
                   f"consecutive failures={self.failures}", file=sys.stderr)
-            return RunResult(False, {"rc": rc, "failures": self.failures})
+            # No silent multi-hour failure: send one warning when three
+            # consecutive checks fail. Don't repeatedly alert on backoff retries.
+            alert_sent = False
+            if self.failures == 3:
+                alert_sent = send_feishu(
+                    "⚠️ LowEndTalk 监控连续 3 次抓取失败。"
+                    "检测游标已保留，请检查 Resources 的 Actions 日志。"
+                )
+            return RunResult(False, {"rc": rc, "failures": self.failures,
+                                     "failure_alert_sent": alert_sent})
 
         items = result["events"]
         notified = False

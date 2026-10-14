@@ -202,11 +202,19 @@ def check(previous: dict, fetch=fetch_page) -> tuple[dict, dict]:
         parser = fetch(last_page)
         scanned = [parser]
         target = max(parser.pages)
-        if target - last_page > 5:
-            raise ValueError("Too many unscanned pages; preserve checkpoint for manual review")
-        for page in range(last_page + 1, target + 1):
+        # Process a bounded number of pages per run rather than getting stuck
+        # forever after a long pause. Only advance the cursor through pages
+        # actually fetched, so later iterations can safely resume the backlog.
+        scan_end = max(last_page, min(target, last_page + 5))
+        if scan_end < target:
+            print(
+                f"LET catch-up: pages {last_page}-{scan_end} of {target}; "
+                f"{target - scan_end} pages remaining",
+                flush=True,
+            )
+        for page in range(last_page + 1, scan_end + 1):
             scanned.append(fetch(page))
-        last_page = max(last_page, target)
+        last_page = scan_end
 
     rows = {row["id"]: row for parsed in scanned for row in parsed.comments}
     if not rows:

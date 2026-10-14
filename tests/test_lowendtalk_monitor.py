@@ -99,11 +99,59 @@ class LowEndTalkMonitorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Pagination unavailable"):
             parse_thread(html(1, rows), page=1)
 
-    def test_too_many_unscanned_pages_preserves_cursor(self):
+    def test_large_backlog_catches_up_in_bounded_batches(self):
+        previous = {"last_page": 2, "last_comment_id": 100}
+        pages = {
+            2: parse_thread(html(2, [(100, "other", "Hi")], [8]), page=2),
+            **{n: parse_thread(html(n, [(100 + n, "dustinc", f"Update {n}")], [8]), page=n)
+               for n in range(3, 9)},
+        }
+        visited = []
+
+        def fetch(page):
+            visited.append(page)
+            return pages[page]
+
+        first, first_events = check(previous, fetch)
+        self.assertEqual(visited, [2, 3, 4, 5, 6, 7])
+        self.assertEqual(first["last_page"], 7)
+        self.assertEqual(first["last_comment_id"], 107)
+        self.assertEqual([e["id"] for e in first_events["events"]], [103, 104, 105, 106, 107])
+
+        visited.clear()
+        second, second_events = check(first, fetch)
+        self.assertEqual(visited, [7, 8])
+        self.assertEqual(second["last_page"], 8)
+        self.assertEqual(second["last_comment_id"], 108)
+        self.assertEqual([e["id"] for e in second_events["events"]], [108])
+
+        _, third_events = check(second, fetch)
+        self.assertEqual(third_events["events"], [])
+
+    def test_catchup_failure_never_changes_previous_checkpoint(self):
         previous = {"last_page": 2, "last_comment_id": 100}
         current = parse_thread(html(2, [(100, "other", "Hi")], [8]), page=2)
-        with self.assertRaisesRegex(ValueError, "Too many unscanned"):
-            check(previous, lambda n: current)
+
+        def fetch(page):
+            if page == 4:
+                raise RuntimeError("HTTP 429")
+            return current
+
+        with self.assertRaisesRegex(RuntimeError, "HTTP 429"):
+            check(previous, fetch)
+        self.assertEqual(previous, {"last_page": 2, "last_comment_id": 100})
+
+    def test_three_consecutive_failures_send_single_health_alert(self):
+        with TemporaryDirectory() as tmp:
+            task = LowEndTalkTask(Path(tmp) / "state", Path(tmp) / "runtime", 180)
+            with patch("monitor_hub.run_command", return_value=1), \
+                 patch("monitor_hub.send_feishu", return_value=True) as notify:
+                for _ in range(5):
+                    result = task.run_once()
+                    self.assertFalse(result.valid)
+                self.assertEqual(task.failures, 5)
+                self.assertEqual(notify.call_count, 1)
+                self.assertIn("连续 3 次", notify.call_args.args[0])
 
     def test_only_quote_mention_does_not_fake_author(self):
         p = parse_thread(html(1, [(20, "other", '<a href="/profile/dustinc">@dustinc</a>')]), page=1)
