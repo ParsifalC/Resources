@@ -22,9 +22,9 @@ concurrency:
   # Keep the old Hax group name so migration cannot overlap an already-running
   # Hax monitor with the new combined monitor.
   group: hax-monitor
-  # Preserve checkpoints on normal pushes. For an explicit pause request only,
-  # cancel the active runner so the disabled LET monitor takes effect promptly.
-  cancel-in-progress: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[pause-let-now]') }}
+  # Preserve checkpoints on normal pushes. For an explicit LET state change,
+  # cancel the old runner so the updated monitoring configuration starts promptly.
+  cancel-in-progress: ${{ github.event_name == 'push' && (contains(github.event.head_commit.message, '[pause-let-now]') || contains(github.event.head_commit.message, '[resume-let-now]')) }}
 
 jobs:
   monitor:
@@ -36,7 +36,7 @@ jobs:
       MONITOR_SECONDS: 20400
       HAX_INTERVAL_SECONDS: 300
       LET_INTERVAL_SECONDS: 180
-      LET_MONITOR_ENABLED: 'false'  # Resume with 'true'; Hax stays active.
+      LET_MONITOR_ENABLED: 'true'   # Keep Hax and LowEndTalk monitoring active.
       HAX_CLEANUP_INTERVAL_SECONDS: 60
       FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
       FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
