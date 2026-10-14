@@ -4,7 +4,8 @@ import urllib.request,io,base64,subprocess,sys,time
 try:
     from PIL import Image,ImageOps,ImageDraw
 except ImportError:
-    subprocess.run([sys.executable,"-m","pip","install","--quiet","Pillow"],check=True,timeout=65)
+    subprocess.run([sys.executable,"-m","pip","install","--quiet","--target","/tmp/let_pil","Pillow"],check=True,timeout=65)
+    sys.path.insert(0,"/tmp/let_pil")
     from PIL import Image,ImageOps,ImageDraw
 entries=[
 (4885610,"weishiair","https://img.cdn1.vip/i/6acf07c903770_1791952841.webp"),
