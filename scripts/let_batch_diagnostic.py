@@ -23,7 +23,7 @@ last=max(p.pages)
 print("PAGES",last,flush=True)
 if last>110:raise ValueError("Page bound exceeded")
 items={}
-for n in range(95,last+1):
+for n in range(94,last+1):
     x=p if n==96 else read(n)
     print("PAGE",n,"COUNT",len(x.comments),flush=True)
     for r in x.comments:items[r["id"]]=r
