@@ -15,7 +15,7 @@ import urllib.request
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
-DATACENTER = re.compile(r"^(?:EU-\\d+|US-OpenVZ-\\d+)$", re.I)
+DATACENTER = re.compile(r"^(?:EU-\d+|US-OpenVZ-\d+)$", re.I)
 DESTINATION = "ParsifalC/moyu-renew"
 
 
