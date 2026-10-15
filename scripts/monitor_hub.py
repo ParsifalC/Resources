@@ -26,6 +26,8 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
 
+from scripts.hax_create_dispatch import build_create_event, dispatch_create_event, dispatch_enabled
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -186,8 +188,38 @@ class HaxTask(MonitorTask):
 
         if diff.get("changed") and not diff.get("initialized"):
             notified = send_feishu(self._notification(snapshot, diff))
-        copy_atomic(current, self.state_path)
-        return RunResult(True, {"changed": bool(diff.get("changed")), "notified": notified})
+
+        # Keep dispatch delivery state in the same persistent monitor-state
+        # snapshot. On temporary GitHub API failure retry the same event, never
+        # synthesize another event id from a later observation.
+        previous = load_json(self.state_path)
+        pending = previous.get("_create_dispatch_pending")
+        if not isinstance(pending, dict):
+            pending = None
+        if not dispatch_enabled():
+            pending = None  # monitor-only mode must never queue surprise creates
+        if pending:
+            try:
+                stamp = datetime.fromisoformat(pending["checked_at"].replace("Z", "+00:00"))
+                if (datetime.now(timezone.utc) - stamp).total_seconds() > 900:
+                    print("[hax] expired unsent create signal; dropping pending dispatch")
+                    pending = None
+            except (KeyError, TypeError, ValueError):
+                pending = None
+        if dispatch_enabled() and pending is None:
+            pending = build_create_event(snapshot, diff)
+        dispatch_status = "disabled"
+        if pending is not None:
+            dispatch_status = dispatch_create_event(pending)
+            if dispatch_status == "sent":
+                pending = None
+            elif dispatch_status == "not_configured":
+                print("[hax] create dispatch enabled but HAX_CREATE_DISPATCH_TOKEN is missing")
+        snapshot["_create_dispatch_pending"] = pending
+        write_json(self.state_path, snapshot)
+        return RunResult(True, {"changed": bool(diff.get("changed")), "notified": notified,
+                                "create_dispatch": dispatch_status,
+                                "create_pending": pending is not None})
 
     @staticmethod
     def _notification(current: dict[str, Any], diff: dict[str, Any]) -> str:
@@ -250,7 +282,7 @@ class HaxTask(MonitorTask):
         lines.extend(
             [
                 "",
-                "ℹ️ 只有成功创建并实际 Online 才能确认是可用 VPS；当前监控保持只读，不会代你创建。",
+                "ℹ️ 信号并非库存确认；Resources 只读监控，可选向私有 renew 发送创建候选信号，不在公开仓库登录或创建。",
                 f"🕒 检测时间：{display_time(current.get('checked_at'))}",
                 "",
                 "🔐 登录 Hax：https://hax.co.id/login",
