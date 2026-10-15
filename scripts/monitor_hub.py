@@ -26,7 +26,10 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
 
-from scripts.hax_create_dispatch import build_create_event, dispatch_create_event, dispatch_enabled
+try:
+    from scripts.hax_create_dispatch import build_create_event, dispatch_create_event, dispatch_enabled
+except ModuleNotFoundError:  # invoked as python scripts/monitor_hub.py
+    from hax_create_dispatch import build_create_event, dispatch_create_event, dispatch_enabled
 
 ROOT = Path(__file__).resolve().parents[1]
 
