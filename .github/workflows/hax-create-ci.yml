@@ -26,3 +26,10 @@ jobs:
         run: python -m py_compile scripts/hax_create_dispatch.py scripts/monitor_hub.py
       - name: Check Hax dispatch unit tests
         run: python -m unittest discover -s tests -p "test_hax_create_dispatch.py" -v
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: Validate workflows with actionlint
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+          "$(go env GOPATH)/bin/actionlint" -color
