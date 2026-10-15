@@ -11,7 +11,8 @@ class CreateDispatchTests(unittest.TestCase):
     def setUp(self):
         self.current = {
             "checked_at": "2026-10-16T00:00:00+00:00",
-            "datacenters": ["EU-1", "US-OpenVZ-2"],
+            "datacenters": ["EU-1", "US-OpenVZ-2", "US-OpenVZ-3"],
+            "data_center_stats_fresh": True,
             "errors": [],
         }
         self.diff = {
@@ -40,6 +41,36 @@ class CreateDispatchTests(unittest.TestCase):
         self.assertIsNone(build_create_event(self.current, {
             **self.diff, "datacenters": {"added": []}, "release_candidates": []}))
         self.assertIsNone(build_create_event({**self.current, "errors": ["timeout"]}, self.diff))
+
+    def test_priority_is_us3_then_eu1_then_us2(self):
+        self.diff["datacenters"] = {"added": ["EU-1", "US-2", "US-3"]}
+        event = build_create_event(self.current, self.diff)
+        self.assertEqual(
+            event["datacenters"], ["US-OpenVZ-3", "EU-1", "US-OpenVZ-2"]
+        )
+
+    def test_only_one_available_candidate_is_selected(self):
+        self.diff["datacenters"] = {"added": []}
+        self.diff["release_candidates"] = [
+            {"datacenter": "US-2", "released": 1, "source": "data-center"}
+        ]
+        self.assertEqual(
+            build_create_event(self.current, self.diff)["datacenters"],
+            ["US-OpenVZ-2"],
+        )
+
+    def test_out_of_scope_datacenters_do_not_trigger(self):
+        self.diff["datacenters"] = {"added": ["EU-2"]}
+        self.diff["release_candidates"] = [
+            {"datacenter": "EU-2", "released": 1, "source": "data-center"}
+        ]
+        self.assertIsNone(build_create_event(self.current, self.diff))
+
+    def test_fresh_release_signal_without_public_form_options(self):
+        self.current["datacenters"] = []
+        self.assertEqual(
+            build_create_event(self.current, self.diff)["datacenters"], ["EU-1"]
+        )
 
     def test_missing_token_never_calls_github(self):
         with patch("urllib.request.urlopen") as send:
