@@ -10,6 +10,10 @@ repository. Permanent form options and baseline snapshots do not trigger
 creation. The private repo checks signal age, origin and fingerprint
 before deciding whether a create attempt is safe.
 
+## Data center policy
+
+**US-3 → EU-1 → US-2** (`US-OpenVZ-3` → `EU-1` → `US-OpenVZ-2`). Only these three Hax data centers are eligible. If only one of them produces a signal, try that one immediately. If several are candidates, prefer the highest-priority choice present in the authenticated Create VPS form; do not wait for US-3 if only EU-1 or US-2 is available. Unknown locations are ignored. The public page may hide Create VPS choices until login; a fresh `/data-center` population decrease is still a candidate event, but the private runner validates the dropdown before submission.
+
 ## Configuration (disabled by default)
 
 Public Resources **Actions secret**:
