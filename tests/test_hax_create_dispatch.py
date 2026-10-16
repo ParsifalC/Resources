@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import unittest
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
+
+from scripts.hax_monitor import make_diff, parse_datacenters
 
 from scripts.hax_create_dispatch import build_create_event, dispatch_create_event
 
@@ -13,6 +16,8 @@ class CreateDispatchTests(unittest.TestCase):
             "checked_at": "2026-10-16T00:00:00+00:00",
             "datacenters": ["EU-1", "US-OpenVZ-2", "US-OpenVZ-3"],
             "data_center_stats_fresh": True,
+            "datacenter_source": "dom_select",
+            "servers_fresh": True,
             "errors": [],
         }
         self.diff = {
@@ -40,7 +45,8 @@ class CreateDispatchTests(unittest.TestCase):
         self.assertIsNone(build_create_event(self.current, {**self.diff, "changed": False}))
         self.assertIsNone(build_create_event(self.current, {
             **self.diff, "datacenters": {"added": []}, "release_candidates": []}))
-        self.assertIsNone(build_create_event({**self.current, "errors": ["timeout"]}, self.diff))
+        self.assertIsNotNone(build_create_event({**self.current, "errors": ["create-vps: options missing"]}, self.diff))
+        self.assertIsNone(build_create_event({**self.current, "data_center_stats_fresh": False}, self.diff))
 
     def test_priority_is_us3_then_eu1_then_us2(self):
         self.diff["datacenters"] = {"added": ["EU-1", "US-2", "US-3"]}
@@ -71,6 +77,67 @@ class CreateDispatchTests(unittest.TestCase):
         self.assertEqual(
             build_create_event(self.current, self.diff)["datacenters"], ["EU-1"]
         )
+
+    def test_no_raw_html_inference_of_stock(self):
+        html = '<script>let fake = "US-OpenVZ-3";</script><p>EU-1 is online</p>'
+        names, source = parse_datacenters(html)
+        self.assertEqual((names, source), ([], "unavailable"))
+
+    def test_only_real_datacenter_select_options(self):
+        html = '<select id="datacenter"><option>Select</option><option>US-OpenVZ-3</option><option>EU-2</option><option>Server Status</option></select>'
+        names, source = parse_datacenters(html)
+        self.assertEqual(source, "dom_select")
+        self.assertEqual(names, ["EU-2", "US-OpenVZ-3"])
+
+    def test_statistic_decrease_with_missing_public_options(self):
+        now = datetime.now(timezone.utc)
+        before = {
+            "checked_at": (now - timedelta(minutes=5)).isoformat(),
+            "datacenters": [], "datacenter_source": "unavailable",
+            "servers": {}, "servers_fresh": False,
+            "data_center_stats_fresh": True,
+            "data_center_stats": {"servers": {"EU-1": 202, "US-OpenVZ-3": 311}},
+        }
+        after = {
+            "checked_at": now.isoformat(), "datacenters": [],
+            "datacenter_source": "unavailable", "servers": {},
+            "servers_fresh": False, "data_center_stats_fresh": True,
+            "data_center_stats": {"servers": {"EU-1": 202, "US-OpenVZ-3": 310}},
+            "errors": ["create-vps: no actionable options"],
+        }
+        diff = make_diff(before, after)
+        self.assertEqual(diff["release_candidates"][0]["datacenter"], "US-OpenVZ-3")
+        self.assertEqual(build_create_event(after, diff)["datacenters"], ["US-OpenVZ-3"])
+
+    def test_stale_previous_statistics_do_not_trigger_create(self):
+        now = datetime.now(timezone.utc)
+        before = {
+            "checked_at": (now - timedelta(hours=2)).isoformat(),
+            "datacenters": [], "datacenter_source": "unavailable",
+            "servers": {}, "servers_fresh": False,
+            "data_center_stats_fresh": True,
+            "data_center_stats": {"servers": {"EU-1": 202}},
+        }
+        after = dict(before, checked_at=now.isoformat(),
+                     data_center_stats={"servers": {"EU-1": 201}})
+        diff = make_diff(before, after)
+        self.assertEqual(diff["release_candidates"], [])
+        self.assertIsNone(build_create_event(after, diff))
+
+    def test_previous_inherited_nonfresh_stats_never_trigger(self):
+        now = datetime.now(timezone.utc)
+        before = {
+            "checked_at": (now - timedelta(minutes=5)).isoformat(),
+            "datacenters": [], "datacenter_source": "unavailable",
+            "servers": {}, "servers_fresh": False,
+            "data_center_stats_fresh": False,
+            "data_center_stats": {"servers": {"EU-1": 202}},
+        }
+        after = dict(before, checked_at=now.isoformat(),
+                     data_center_stats_fresh=True,
+                     data_center_stats={"servers": {"EU-1": 201}})
+        diff = make_diff(before, after)
+        self.assertEqual(diff["release_candidates"], [])
 
     def test_missing_token_never_calls_github(self):
         with patch("urllib.request.urlopen") as send:
