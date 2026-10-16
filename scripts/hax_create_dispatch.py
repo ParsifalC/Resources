@@ -11,6 +11,7 @@ import json
 import os
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from typing import Any, Mapping
@@ -107,12 +108,26 @@ def dispatch_create_event(payload: Mapping[str, Any], env: Mapping[str, str] | N
     data = os.environ if env is None else env
     if not dispatch_enabled(data):
         return "disabled"
-    token = str(data.get("HAX_CREATE_DISPATCH_TOKEN") or "").strip()
+    worker = str(data.get("HAX_CREATE_WORKER_URL") or "").strip()
+    if worker:
+        try:
+            parsed = urllib.parse.urlsplit(worker)
+        except ValueError:
+            return "not_configured"
+        if (parsed.scheme != "https" or not parsed.hostname or parsed.username
+                or parsed.password or parsed.query or parsed.fragment):
+            return "not_configured"
+        token = str(data.get("HAX_CREATE_WORKER_TOKEN") or "").strip()
+        url, body = worker, dict(payload)
+    else:
+        token = str(data.get("HAX_CREATE_DISPATCH_TOKEN") or "").strip()
+        url = f"https://api.github.com/repos/{DESTINATION}/dispatches"
+        body = {"event_type": "hax_create_candidate", "client_payload": dict(payload)}
     if not token:
         return "not_configured"
     req = urllib.request.Request(
-        f"https://api.github.com/repos/{DESTINATION}/dispatches",
-        data=json.dumps({"event_type": "hax_create_candidate", "client_payload": dict(payload)}).encode(),
+        url,
+        data=json.dumps(body).encode(),
         method="POST",
         headers={
             "Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
@@ -122,7 +137,7 @@ def dispatch_create_event(payload: Mapping[str, Any], env: Mapping[str, str] | N
     )
     try:
         with urllib.request.urlopen(req, timeout=15) as response:
-            return "sent" if response.status == 204 else "error"
+            return "sent" if response.status in ((200, 202) if worker else (204,)) else "error"
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         # Exception text may include request metadata; log only a safe category.
         print(f"[hax] private dispatch failed: {type(exc).__name__}")

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 import re
 import sys
@@ -451,27 +452,32 @@ def main() -> int:
     previous = read_json(args.previous)
     errors: list[str] = []
 
-    try:
-        create_html = fetch(CREATE_URL)
-        datacenters, dc_source = parse_datacenters(create_html)
-        if dc_source == "unavailable":
-            errors.append("create-vps: no actionable datacenter options in public page")
-    except Exception as exc:  # noqa: BLE001 - monitor should report partial failure
-        datacenters, dc_source = [], "error"
-        errors.append(f"create-vps: {type(exc).__name__}: {exc}")
+    # A slow anonymous form must not serialize the richer statistics probe.
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        create_future = pool.submit(fetch, CREATE_URL, timeout=8)
+        server_future = pool.submit(fetch, SERVER_URL, timeout=8)
+        stats_future = pool.submit(diagnose_data_center, DATA_CENTER_URL, timeout=8)
+        try:
+            create_html = create_future.result()
+            datacenters, dc_source = parse_datacenters(create_html)
+            if dc_source == "unavailable":
+                errors.append("create-vps: no actionable datacenter options in public page")
+        except Exception as exc:  # noqa: BLE001 - monitor should report partial failure
+            datacenters, dc_source = [], "error"
+            errors.append(f"create-vps: {type(exc).__name__}: {exc}")
 
-    servers_fresh = False
-    try:
-        server_html = fetch(SERVER_URL)
-        servers = parse_server_counts(server_html)
-        servers_fresh = bool(servers)
-        if not servers:
-            errors.append("server: response was reachable but VPS counts could not be parsed")
-    except Exception as exc:  # noqa: BLE001
-        servers = {}
-        errors.append(f"server: {type(exc).__name__}: {exc}")
+        servers_fresh = False
+        try:
+            server_html = server_future.result()
+            servers = parse_server_counts(server_html)
+            servers_fresh = bool(servers)
+            if not servers:
+                errors.append("server: response was reachable but VPS counts could not be parsed")
+        except Exception as exc:  # noqa: BLE001
+            servers = {}
+            errors.append(f"server: {type(exc).__name__}: {exc}")
 
-    data_center_probe = diagnose_data_center(DATA_CENTER_URL)
+        data_center_probe = stats_future.result()
     raw_stats = data_center_probe.get("stats") or {}
     data_center_stats_fresh = bool(
         data_center_probe.get("page_kind") == "hax_data_center"

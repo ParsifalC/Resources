@@ -192,9 +192,6 @@ class HaxTask(MonitorTask):
             print(f"[hax] no trustworthy current probe; preserving previous snapshot. rc={rc} errors={errors}", file=sys.stderr)
             return RunResult(False, {"rc": rc, "errors": errors})
 
-        if diff.get("changed") and not diff.get("initialized"):
-            notified = send_feishu(self._notification(snapshot, diff))
-
         # Keep dispatch delivery state in the same persistent monitor-state
         # snapshot. On temporary GitHub API failure retry the same event, never
         # synthesize another event id from a later observation.
@@ -220,9 +217,12 @@ class HaxTask(MonitorTask):
             if dispatch_status == "sent":
                 pending = None
             elif dispatch_status == "not_configured":
-                print("[hax] create dispatch enabled but HAX_CREATE_DISPATCH_TOKEN is missing")
+                print("[hax] selected create target is missing its token or valid URL")
         snapshot["_create_dispatch_pending"] = pending
         write_json(self.state_path, snapshot)
+        # Deliver stock signals before waiting for human notification APIs.
+        if diff.get("changed") and not diff.get("initialized"):
+            notified = send_feishu(self._notification(snapshot, diff))
         return RunResult(True, {"changed": bool(diff.get("changed")), "notified": notified,
                                 "create_dispatch": dispatch_status,
                                 "create_pending": pending is not None})

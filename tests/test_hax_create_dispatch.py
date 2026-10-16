@@ -2,6 +2,10 @@
 from __future__ import annotations
 
 import unittest
+import json
+import tempfile
+import threading
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
@@ -144,6 +148,47 @@ class CreateDispatchTests(unittest.TestCase):
             self.assertEqual(dispatch_create_event(
                 {"event_id": "x"}, {"HAX_CREATE_DISPATCH_ENABLED": "true"}), "not_configured")
             send.assert_not_called()
+
+    def test_warm_worker_receives_raw_signal_without_github_dispatch(self):
+        env = {"HAX_CREATE_DISPATCH_ENABLED": "true",
+               "HAX_CREATE_WORKER_URL": "https://worker.example/candidate",
+               "HAX_CREATE_WORKER_TOKEN": "worker-token"}
+        with patch("urllib.request.urlopen") as send:
+            send.return_value.__enter__.return_value.status = 202
+            self.assertEqual(dispatch_create_event({"event_id": "fixture"}, env), "sent")
+        request = send.call_args.args[0]
+        self.assertEqual(request.full_url, env["HAX_CREATE_WORKER_URL"])
+        self.assertEqual(json.loads(request.data), {"event_id": "fixture"})
+        self.assertEqual(request.get_header("Authorization"), "Bearer worker-token")
+
+    def test_invalid_or_unconfigured_worker_does_not_fall_back_to_actions(self):
+        for url in ("http://worker.example/candidate", "https://worker.example/candidate?secret=x",
+                    "https://user:pass@worker.example/candidate", "https://worker.example/candidate"):
+            with patch("urllib.request.urlopen") as send:
+                env = {"HAX_CREATE_DISPATCH_ENABLED": "true", "HAX_CREATE_WORKER_URL": url,
+                       "HAX_CREATE_DISPATCH_TOKEN": "github-token"}
+                self.assertEqual(dispatch_create_event({"event_id": "fixture"}, env), "not_configured")
+                send.assert_not_called()
+
+    def test_monitor_probes_run_concurrently_and_keep_partial_results(self):
+        from scripts import hax_monitor
+        gate = threading.Barrier(3, timeout=3)
+        def fetch(url, timeout):
+            gate.wait()
+            if url == hax_monitor.CREATE_URL:
+                raise TimeoutError("anonymous form unavailable")
+            return "<html></html>"
+        def stats(url, timeout):
+            gate.wait()
+            return {"page_kind": "hax_data_center", "stats": {
+                "servers": {"EU-1": 200}, "online_total": 200, "consistent": True}}
+        with tempfile.TemporaryDirectory() as folder, patch.object(hax_monitor, "fetch", side_effect=fetch), \
+             patch.object(hax_monitor, "diagnose_data_center", side_effect=stats), \
+             patch("builtins.print"), patch("sys.argv", ["hax_monitor", "--output", folder+"/current.json", "--diff-output", folder+"/diff.json"]):
+            self.assertEqual(hax_monitor.main(), 0)
+            result = json.loads(Path(folder, "current.json").read_text())
+        self.assertTrue(result["data_center_stats_fresh"])
+        self.assertEqual(result["datacenter_source"], "error")
 
     def test_disabled_by_default(self):
         with patch("urllib.request.urlopen") as send:

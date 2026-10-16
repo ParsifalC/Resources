@@ -32,3 +32,18 @@ in this public repository. Do not enable creation until the private
 repository has the VPS password secret and its tests pass.
 
 Disable dispatch immediately by setting the Actions variable to false.
+
+## Warm private executor (optional)
+
+The default target remains GitHub Actions. For a warm Debian/Ubuntu worker,
+set repository variable `HAX_CREATE_WORKER_URL=https://YOUR_HOST/candidate`
+and secret `HAX_CREATE_WORKER_TOKEN` matching the private worker token.
+The existing `HAX_CREATE_DISPATCH_ENABLED` switch governs both routes.
+Only stock metadata is sent. Hax credentials remain on the private worker.
+A configured worker replaces Actions delivery; failures retain the same pending
+signal for retry and do not launch a second Actions consumer.
+
+Monitoring now defaults to 30 seconds, or 5 seconds during the cleanup window.
+`HAX_INTERVAL_SECONDS` and `HAX_CLEANUP_INTERVAL_SECONDS` repository variables
+can override these intervals. Probe duration still adds detection latency.
+Stock dispatch runs before the Feishu notification request.
