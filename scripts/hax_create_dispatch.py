@@ -51,12 +51,15 @@ def dispatch_enabled(env: Mapping[str, str] | None = None) -> bool:
 
 def build_create_event(current: Mapping[str, Any], diff: Mapping[str, Any]) -> dict[str, Any] | None:
     """Require a real transition; permanent form options never constitute stock."""
-    if diff.get("initialized") or not diff.get("changed") or current.get("errors"):
+    if diff.get("initialized") or not diff.get("changed"):
         return None
+    # Partial failure of the public anonymous form must not suppress trusted
+    # live /data-center statistics. Each evidence source is validated below.
     visible = {canonical_datacenter(item) for item in current.get("datacenters") or []}
     added = [canonical_datacenter(dc)
              for dc in (diff.get("datacenters") or {}).get("added", [])
-             if canonical_datacenter(dc) in visible]
+             if current.get("datacenter_source") == "dom_select"
+             and canonical_datacenter(dc) in visible]
     # The public create form may hide choices until the user logs in, whereas
     # /data-center can still reveal a real population decrease. Dispatch this
     # as a *candidate*; the private authenticated form must confirm the choice.
@@ -69,7 +72,10 @@ def build_create_event(current: Mapping[str, Any], diff: Mapping[str, Any]) -> d
         is_fresh_population = (
             source == "data-center" and current.get("data_center_stats_fresh") is True
         )
-        is_visible_server_hint = source == "server-fallback" and name in visible
+        is_visible_server_hint = (
+            source == "server-fallback" and current.get("servers_fresh") is True
+            and current.get("datacenter_source") == "dom_select" and name in visible
+        )
         released = item.get("released")
         if (name and type(released) is int and released > 0
                 and (is_fresh_population or is_visible_server_hint)):
