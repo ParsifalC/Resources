@@ -34,7 +34,7 @@ jobs:
     timeout-minutes: 350
     env:
       MONITOR_SECONDS: 20400
-      HAX_INTERVAL_SECONDS: ${{ vars.HAX_INTERVAL_SECONDS || '30' }}
+      HAX_INTERVAL_SECONDS: ${{ vars.HAX_INTERVAL_SECONDS || '300' }}
       LET_INTERVAL_SECONDS: 180
       LET_MONITOR_ENABLED: 'true'   # Keep Hax and LowEndTalk monitoring active.
       HAX_CLEANUP_INTERVAL_SECONDS: ${{ vars.HAX_CLEANUP_INTERVAL_SECONDS || '5' }}
