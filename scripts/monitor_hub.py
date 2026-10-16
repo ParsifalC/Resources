@@ -182,11 +182,14 @@ class HaxTask(MonitorTask):
         snapshot = load_json(current)
         diff = load_json(diff_path)
         errors = snapshot.get("errors") or []
-        valid = rc == 0 and not errors and bool(snapshot)
+        valid = (rc == 0 and bool(snapshot) and isinstance(snapshot.get("checked_at"), str)
+                 and (snapshot.get("data_center_stats_fresh") is True
+                      or snapshot.get("servers_fresh") is True
+                      or snapshot.get("datacenter_source") == "dom_select"))
         notified = False
 
         if not valid:
-            print(f"[hax] invalid probe; preserving previous snapshot. rc={rc} errors={errors}", file=sys.stderr)
+            print(f"[hax] no trustworthy current probe; preserving previous snapshot. rc={rc} errors={errors}", file=sys.stderr)
             return RunResult(False, {"rc": rc, "errors": errors})
 
         if diff.get("changed") and not diff.get("initialized"):
