@@ -38,6 +38,10 @@ jobs:
       LET_INTERVAL_SECONDS: 180
       LET_MONITOR_ENABLED: 'true'   # Keep Hax and LowEndTalk monitoring active.
       HAX_CLEANUP_INTERVAL_SECONDS: 60
+      # Off by default. A fine-grained token scoped ONLY to the private
+      # ParsifalC/moyu-renew repository is required to dispatch signals.
+      HAX_CREATE_DISPATCH_ENABLED: ${{ vars.HAX_CREATE_DISPATCH_ENABLED || 'false' }}
+      HAX_CREATE_DISPATCH_TOKEN: ${{ secrets.HAX_CREATE_DISPATCH_TOKEN }}
       FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
       FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
       FEISHU_CHAT_ID: ${{ secrets.FEISHU_CHAT_ID }}

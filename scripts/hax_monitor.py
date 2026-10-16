@@ -287,6 +287,8 @@ def normalize_datacenters(options: list[str]) -> list[str]:
         cleaned = " ".join(option.split()).strip()
         if not cleaned or cleaned.lower() in placeholders:
             continue
+        if not re.fullmatch(r"(?:EU-\d+|US-OpenVZ-\d+)", cleaned, re.I):
+            continue
         if cleaned not in result:
             result.append(cleaned)
     return sorted(result)
@@ -298,8 +300,9 @@ def parse_datacenters(html: str) -> tuple[list[str], str]:
     if parser.options:
         return normalize_datacenters(parser.options), "dom_select"
 
-    candidates = sorted(set(re.findall(r"\b(?:EU-\d+|US-OpenVZ-\d+|[A-Z]{2,}-[A-Za-z0-9-]+)\b", html)))
-    return candidates, "raw_html_fallback" if candidates else "unavailable"
+    # Never infer actionable options from arbitrary inline script/text; the
+    # public unauthenticated page often hides the real dropdown entirely.
+    return [], "unavailable"
 
 
 def parse_server_counts(html: str) -> dict[str, int]:
@@ -357,19 +360,35 @@ def make_diff(previous: dict[str, Any] | None, current: dict[str, Any]) -> dict[
     if previous is None:
         return empty_diff(previous)
 
-    prev_dc = set(previous.get("datacenters") or [])
-    curr_dc = set(current.get("datacenters") or [])
-    dc_added = sorted(curr_dc - prev_dc)
-    dc_removed = sorted(prev_dc - curr_dc)
+    # A stale, missing or partially failed snapshot must never imply a new
+    # available slot. Require both ends of each comparison to be fresh.
+    try:
+        then = datetime.fromisoformat(str(previous.get("checked_at") or "").replace("Z", "+00:00"))
+        now = datetime.fromisoformat(str(current.get("checked_at") or "").replace("Z", "+00:00"))
+        comparable = (then.tzinfo is not None and now.tzinfo is not None
+                      and 0 <= (now - then).total_seconds() <= 1800)
+    except ValueError:
+        comparable = False
 
-    server_changes = count_changes(previous.get("servers") or {}, current.get("servers") or {})
+    options_fresh = bool(comparable and
+                         previous.get("datacenter_source") == "dom_select" and
+                         current.get("datacenter_source") == "dom_select")
+    prev_dc = set(previous.get("datacenters") or []) if options_fresh else set()
+    curr_dc = set(current.get("datacenters") or [])
+    dc_added = sorted(curr_dc - prev_dc) if options_fresh else []
+    dc_removed = sorted(prev_dc - curr_dc) if options_fresh else []
+
+    server_fresh = bool(comparable and previous.get("servers_fresh") and current.get("servers_fresh"))
+    server_changes = count_changes(previous.get("servers") or {}, current.get("servers") or {}) if server_fresh else {}
 
     previous_stats = previous.get("data_center_stats") or {}
     current_stats = current.get("data_center_stats") or {}
+    stats_fresh = bool(comparable and previous.get("data_center_stats_fresh") is True
+                       and current.get("data_center_stats_fresh") is True)
     stats_changes: dict[str, dict[str, int | None]] = {}
     release_candidates: list[dict[str, Any]] = []
 
-    if current.get("data_center_stats_fresh") and previous_stats.get("servers"):
+    if stats_fresh and previous_stats.get("servers"):
         stats_changes = count_changes(previous_stats.get("servers") or {}, current_stats.get("servers") or {})
         for name, change in stats_changes.items():
             delta = change.get("delta")
@@ -386,7 +405,7 @@ def make_diff(previous: dict[str, Any] | None, current: dict[str, Any]) -> dict[
 
     # /server only covers part of Hax. Use a negative change as a fallback release
     # hint only when the richer /data-center snapshot is not fresh.
-    if not current.get("data_center_stats_fresh"):
+    if server_fresh and not current.get("data_center_stats_fresh"):
         for name, change in server_changes.items():
             delta = change.get("delta")
             if isinstance(delta, int) and delta < 0:
@@ -403,7 +422,7 @@ def make_diff(previous: dict[str, Any] | None, current: dict[str, Any]) -> dict[
     prev_online = previous_stats.get("online_total")
     curr_online = current_stats.get("online_total")
     online_change = None
-    if current.get("data_center_stats_fresh") and isinstance(prev_online, int) and isinstance(curr_online, int):
+    if stats_fresh and isinstance(prev_online, int) and isinstance(curr_online, int):
         if prev_online != curr_online:
             online_change = {"before": prev_online, "after": curr_online, "delta": curr_online - prev_online}
 
@@ -436,14 +455,16 @@ def main() -> int:
         create_html = fetch(CREATE_URL)
         datacenters, dc_source = parse_datacenters(create_html)
         if dc_source == "unavailable":
-            errors.append("create-vps: response was reachable but datacenter options could not be parsed")
+            errors.append("create-vps: no actionable datacenter options in public page")
     except Exception as exc:  # noqa: BLE001 - monitor should report partial failure
         datacenters, dc_source = [], "error"
         errors.append(f"create-vps: {type(exc).__name__}: {exc}")
 
+    servers_fresh = False
     try:
         server_html = fetch(SERVER_URL)
         servers = parse_server_counts(server_html)
+        servers_fresh = bool(servers)
         if not servers:
             errors.append("server: response was reachable but VPS counts could not be parsed")
     except Exception as exc:  # noqa: BLE001
@@ -472,6 +493,7 @@ def main() -> int:
         "datacenter_option_semantics": "form_option_only_not_confirmed_stock",
         "servers": servers,
         "server_total": sum(servers.values()) if servers else None,
+        "servers_fresh": servers_fresh,
         "data_center_stats": data_center_stats,
         "data_center_stats_fresh": data_center_stats_fresh,
         "data_center_probe": data_center_probe,
@@ -479,7 +501,12 @@ def main() -> int:
         "urls": {"create": CREATE_URL, "server": SERVER_URL, "data_center": DATA_CENTER_URL},
     }
 
-    diff = empty_diff(previous) if errors else make_diff(previous, current)
+    # A partial probe is still useful: /data-center live statistics can be
+    # valid while the anonymous Create VPS page shows no dropdown options.
+    # make_diff independently enforces freshness for each evidence source.
+    diff = make_diff(previous, current) if (
+        data_center_stats_fresh or servers_fresh or dc_source == "dom_select"
+    ) else empty_diff(previous)
 
     args.output.write_text(json.dumps(current, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     args.diff_output.write_text(json.dumps(diff, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
