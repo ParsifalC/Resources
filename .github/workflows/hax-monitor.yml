@@ -37,7 +37,7 @@ jobs:
       HAX_INTERVAL_SECONDS: ${{ vars.HAX_INTERVAL_SECONDS || '300' }}
       LET_INTERVAL_SECONDS: 180
       LET_MONITOR_ENABLED: 'true'   # Keep Hax and LowEndTalk monitoring active.
-      HAX_CLEANUP_INTERVAL_SECONDS: ${{ vars.HAX_CLEANUP_INTERVAL_SECONDS || '5' }}
+      HAX_CLEANUP_INTERVAL_SECONDS: ${{ vars.HAX_CLEANUP_INTERVAL_SECONDS || '15' }}
       # Off by default. A fine-grained token scoped ONLY to the private
       # ParsifalC/moyu-renew repository is required to dispatch signals.
       HAX_CREATE_DISPATCH_ENABLED: ${{ vars.HAX_CREATE_DISPATCH_ENABLED || 'false' }}

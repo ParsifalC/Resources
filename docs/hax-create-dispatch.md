@@ -45,7 +45,7 @@ signal for retry and do not launch a second Actions consumer.
 
 Monitoring defaults to 300 seconds during normal hours. Only the existing
 16:55–17:20 UTC cleanup window (00:55–01:20 Asia/Shanghai) uses the shorter
-5-second interval.
+15-second interval.
 `HAX_INTERVAL_SECONDS` and `HAX_CLEANUP_INTERVAL_SECONDS` repository variables
 can override these intervals. Probe duration still adds detection latency.
 Stock dispatch runs before the Feishu notification request.
