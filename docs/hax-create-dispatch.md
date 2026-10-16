@@ -49,3 +49,14 @@ Monitoring defaults to 300 seconds during normal hours. Only the existing
 `HAX_INTERVAL_SECONDS` and `HAX_CLEANUP_INTERVAL_SECONDS` repository variables
 can override these intervals. Probe duration still adds detection latency.
 Stock dispatch runs before the Feishu notification request.
+
+## End-to-end preflight
+
+After merging both repositories, run **Hax Create Dispatch CI** manually with
+`dispatch_probe=true`. It sends a synthetic candidate through the same private
+repository dispatch API and the same `HAX_CREATE_DISPATCH_TOKEN`, with
+`inspect_only=true`. The private workflow still validates the source, timestamp
+and event digest, logs in and checks the real form, but never submits a VPS.
+This explicit probe does not enable the regular monitoring switch and does not
+use the optional warm-worker route. After it passes, enable automatic dispatch
+and restart the long-lived monitor so its environment and code are refreshed.
