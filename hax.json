@@ -1,5 +1,5 @@
 {
-  "checked_at": "2026-10-16T02:24:03.460063+00:00",
+  "checked_at": "2026-10-16T08:03:30.316957+00:00",
   "datacenters": [],
   "datacenter_source": "dom_select",
   "datacenter_option_semantics": "form_option_only_not_confirmed_stock",
@@ -11,6 +11,7 @@
     "EU-5": 0
   },
   "server_total": 200,
+  "servers_fresh": true,
   "data_center_stats": {
     "servers": {
       "EU-1": 200,
@@ -89,5 +90,6 @@
     "create": "https://hax.co.id/create-vps/",
     "server": "https://hax.co.id/server",
     "data_center": "https://hax.co.id/data-center"
-  }
+  },
+  "_create_dispatch_pending": null
 }
